@@ -1,4 +1,4 @@
-# Drama Studio MVP
+# Drama Studio - Text Production
 
 Local Mac/Windows desktop app that turns a `.docx` novel into an editable AI short-drama scene plan plus separately extractable photo and video prompts.
 
@@ -15,15 +15,20 @@ No API key is required for **Demo mode**. For real processing, choose DeepSeek o
 ## Project output
 
 ```text
-Chosen folder/
+Drama Projects/
+└── Project Name/
+├── Source/
+│   └── Original Novel.docx
 ├── Project Plan/
-│   ├── Scene Plan.json
-│   └── Character Profiles/*.json
+│   ├── project.drama
+│   ├── Scene Plan.txt
+│   └── Characters.txt
 └── Project Genre/
     ├── Character References/
-    ├── Photo Prompts.txt
-    ├── Video Prompts.txt
-    └── Photos/
+    ├── Photos Prompts.txt
+    ├── Videos Prompts.txt
+    ├── Photos/
+    └── Videos/
 ```
 
 The image/video folders are prepared for the later generation stage. This MVP stops at reviewable prompts.
@@ -33,7 +38,10 @@ The image/video folders are prepared for the later generation stage. This MVP st
 - Plain-language theme/style and recurring-character editors
 - Long-novel chunk analysis followed by episode-batched scene generation
 - Editable scene ordering, duration, location, action, subtitle timing, camera and continuity
-- Draft/reviewed/approved status per scene
+- Project Manager with reusable projects and automatic folder creation
+- Separate scene and photo/video prompt approval boards with multi-selection
+- Draft/reviewed/approved status per scene and per prompt
+- Editing an approved scene clears its obsolete prompts automatically
 - Regenerate one field, both prompts, or the complete selected scene
 - Automatic prompt character counts and atomic autosaving
 - Cancellation between API calls and retry handling for temporary provider failures

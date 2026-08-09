@@ -49,6 +49,8 @@ def normalize_project(data: dict[str, Any]) -> ProjectData:
         scene.duration_seconds = max(2, min(15, _positive_int(scene.duration_seconds, 6)))
         scene.characters = [_id(value) for value in scene.characters if _id(value)]
         scene.status = scene.status if scene.status in ("draft", "reviewed", "approved") else "draft"
+        scene.photo_status = scene.photo_status if scene.photo_status in ("missing", "draft", "reviewed", "approved") else "missing"
+        scene.video_status = scene.video_status if scene.video_status in ("missing", "draft", "reviewed", "approved") else "missing"
         for subtitle in scene.subtitles:
             subtitle.start_seconds = max(0.0, float(subtitle.start_seconds or 0))
             subtitle.end_seconds = min(float(scene.duration_seconds), max(subtitle.start_seconds, float(subtitle.end_seconds or 0)))

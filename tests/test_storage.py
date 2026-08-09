@@ -14,9 +14,9 @@ class StorageTests(unittest.TestCase):
             save_project(temp, project)
             root = Path(temp)
             self.assertTrue((root / "Project Plan" / "Scene Plan.json").exists())
-            self.assertTrue((root / "Project Plan" / "Character Profiles" / "LIN.json").exists())
-            self.assertTrue((root / "Project Genre" / "Photo Prompts.txt").exists())
-            self.assertTrue((root / "Project Genre" / "Video Prompts.txt").exists())
+            self.assertTrue((root / "Project Plan" / "Characters.txt").exists())
+            self.assertTrue((root / "Project Genre" / "Photos Prompts.txt").exists())
+            self.assertTrue((root / "Project Genre" / "Videos Prompts.txt").exists())
             self.assertTrue((root / "Project Genre" / "Character References").is_dir())
             raw_plan = json.loads((root / "Project Plan" / "Scene Plan.json").read_text(encoding="utf-8"))
             self.assertNotIn("characters", raw_plan)
@@ -26,6 +26,8 @@ class StorageTests(unittest.TestCase):
 
     def test_prompt_blocks_are_independently_extractable(self):
         project = demo_project()
+        project.scenes[0].photo_status = "approved"
+        project.scenes[0].video_status = "approved"
         photo = render_photo_prompts(project)
         video = render_video_prompts(project)
         self.assertEqual(photo.count("<<<PHOTO_PROMPT_BEGIN>>>"), 1)

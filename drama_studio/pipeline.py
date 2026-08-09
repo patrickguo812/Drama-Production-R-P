@@ -27,14 +27,18 @@ PLAN_SCHEMA = {
 
 def process_novel(novel: ExtractedNovel, provider: ChatProvider, progress: Progress = lambda _: None, cancelled: Callable[[], bool] = lambda: False) -> ProjectData:
     if provider.config.provider == "Demo":
-        progress("Creating demo scene plan")
-        return demo_project(novel.title)
+        progress("PROGRESS 100 100 Creating demo scene plan")
+        project = demo_project(novel.title)
+        for scene in project.scenes:
+            scene.photo_prompt = scene.video_prompt = ""
+            scene.photo_status = scene.video_status = "missing"
+        return project
     summaries: list[dict] = []
     chunks = chunk_novel(novel)
     for index, chunk in enumerate(chunks, 1):
         if cancelled():
             raise InterruptedError("Processing cancelled. No partial provider output was saved.")
-        progress(f"Analyzing novel section {index} of {len(chunks)}")
+        progress(f"PROGRESS {int(index / len(chunks) * 40)} 100 Analyzing novel section {index} of {len(chunks)}")
         prompt = f"""分析以下小说片段，供后续统一改编。输出JSON：
 {{"source_section":{index},"plot_events":[""],"characters":[{{"name":"","traits":"","appearance_clues":""}}],"locations":[""],"themes":[""],"visual_clues":[""]}}
 只记录文本有依据的重要内容，保留事件顺序。
@@ -42,7 +46,7 @@ def process_novel(novel: ExtractedNovel, provider: ChatProvider, progress: Progr
 小说片段：
 {chunk}"""
         summaries.append(parse_json_response(provider.complete(SYSTEM, prompt, 5000)))
-    progress("Planning the complete short drama")
+    progress("PROGRESS 45 100 Planning the complete short drama")
     if cancelled():
         raise InterruptedError("Processing cancelled. No partial provider output was saved.")
     plan_prompt = f"""根据所有片段分析，制定完整AI短剧内部改编计划。不要遗漏主线结局。严格遵循这个JSON结构：
@@ -66,7 +70,7 @@ def process_novel(novel: ExtractedNovel, provider: ChatProvider, progress: Progr
         if cancelled():
             raise InterruptedError("Processing cancelled. No partial provider output was saved.")
         episode_number = int(episode.get("episode") or position)
-        progress(f"Writing episode {position} of {len(episodes)}")
+        progress(f"PROGRESS {50 + int(position / len(episodes) * 45)} 100 Writing episode {position} of {len(episodes)}")
         source_numbers = {int(value) for value in episode.get("source_sections", []) if str(value).isdigit()}
         source_material = [s for s in summaries if int(s.get("source_section", 0)) in source_numbers] or summaries
         scene_prompt = f"""为这一集生成可直接制作的逐镜头JSON。输出结构：{{"scenes":[{json.dumps(SCHEMA['scenes'][0], ensure_ascii=False)}]}}。
@@ -76,7 +80,7 @@ def process_novel(novel: ExtractedNovel, provider: ChatProvider, progress: Progr
 本集原文分析：{json.dumps(source_material, ensure_ascii=False)}
 上一集最后两镜：{json.dumps(prior_tail, ensure_ascii=False)}
 
-要求：scene的episode全部为{episode_number}，scene从1连续编号，prompt_id格式E{episode_number:03d}_S001；每镜4-10秒且只有一个主要可见动作；所有字段齐全；照片提示词精确中文约100汉字；视频提示词写清时序动作、运镜和连续性；结尾实现计划中的ending_hook。"""
+要求：scene的episode全部为{episode_number}，scene从1连续编号，prompt_id格式E{episode_number:03d}_S001；每镜4-10秒且只有一个主要可见动作；剧情、地点、角色、动作、字幕、时长、镜头和连续性字段齐全；photo_prompt和video_prompt必须留空，提示词将在人工批准分镜后另行生成；结尾实现计划中的ending_hook。"""
         batch = parse_json_response(provider.complete(SYSTEM, scene_prompt, 24000))
         scenes = batch.get("scenes", [])
         if not isinstance(scenes, list) or not scenes:
@@ -89,7 +93,7 @@ def process_novel(novel: ExtractedNovel, provider: ChatProvider, progress: Progr
         prior_tail = scenes[-2:]
     data = {"project_summary": plan.get("project_summary", {}), "characters": plan.get("characters", []), "scenes": all_scenes}
     try:
-        return normalize_project(data)
+        project = normalize_project(data)
     except ValueError as first_error:
         progress("Repairing incomplete provider output")
         repair_prompt = f"""修复下面的项目JSON，使其严格符合给定结构。保留已有剧情，只补齐、纠正字段和唯一ID。只输出有效JSON。
@@ -97,7 +101,35 @@ def process_novel(novel: ExtractedNovel, provider: ChatProvider, progress: Progr
 校验问题：{first_error}
 待修复JSON：{json.dumps(data, ensure_ascii=False)}"""
         repaired = parse_json_response(provider.complete(SYSTEM, repair_prompt, 24000))
-        return normalize_project(repaired)
+        project = normalize_project(repaired)
+    for scene in project.scenes:
+        # Scene planning and prompt production are separate approval stages.
+        scene.photo_prompt = ""
+        scene.video_prompt = ""
+        scene.photo_status = "missing"
+        scene.video_status = "missing"
+        scene.status = "draft"
+    progress("PROGRESS 100 100 Scene plan ready for review")
+    return project
+
+
+def generate_scene_prompts(project: ProjectData, scene_indexes: list[int], provider: ChatProvider,
+                           progress: Progress = lambda _: None,
+                           cancelled: Callable[[], bool] = lambda: False) -> dict[int, Scene]:
+    results: dict[int, Scene] = {}
+    approved = [index for index in scene_indexes if project.scenes[index].status == "approved"]
+    if not approved:
+        raise ValueError("Approve at least one scene before generating prompts.")
+    for position, index in enumerate(approved, 1):
+        if cancelled():
+            raise InterruptedError("Prompt generation cancelled. Completed prompts were saved.")
+        scene = regenerate_scene(project, index, provider, prompts_only=True)
+        scene.status = "approved"
+        scene.photo_status = "draft"
+        scene.video_status = "draft"
+        results[index] = scene
+        progress(f"PROGRESS {position} {len(approved)} Generated prompts for {scene.prompt_id}")
+    return results
 
 
 def regenerate_scene(project: ProjectData, scene_index: int, provider: ChatProvider, prompts_only: bool = False) -> Scene:
@@ -140,6 +172,8 @@ def regenerate_scene(project: ProjectData, scene_index: int, provider: ChatProvi
         preserved["video_prompt"] = regenerated.video_prompt
         preserved["status"] = "draft"
         regenerated = Scene.from_dict(preserved)
+        regenerated.photo_status = "draft"
+        regenerated.video_status = "draft"
     return regenerated
 
 

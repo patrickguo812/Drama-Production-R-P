@@ -30,6 +30,8 @@ class Scene:
     photo_prompt: str = ""
     video_prompt: str = ""
     status: str = "draft"
+    photo_status: str = "draft"
+    video_status: str = "draft"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Scene":
@@ -44,22 +46,30 @@ class Scene:
 
 @dataclass
 class ProjectData:
+    project_name: str = ""
+    source_document: str = ""
     project_summary: dict[str, Any] = field(default_factory=dict)
     characters: list[dict[str, Any]] = field(default_factory=list)
     scenes: list[Scene] = field(default_factory=list)
+    processing: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ProjectData":
         return cls(
+            project_name=data.get("project_name", ""),
+            source_document=data.get("source_document", ""),
             project_summary=data.get("project_summary", {}),
             characters=data.get("characters", []),
             scenes=[Scene.from_dict(s) for s in data.get("scenes", [])],
+            processing=data.get("processing", {}),
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "project_name": self.project_name,
+            "source_document": self.source_document,
             "project_summary": self.project_summary,
             "characters": self.characters,
             "scenes": [s.to_dict() for s in self.scenes],
+            "processing": self.processing,
         }
-

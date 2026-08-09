@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -12,11 +13,12 @@ def ensure_project_folders(root: str | Path) -> dict[str, Path]:
     base = Path(root)
     paths = {
         "root": base,
+        "source": base / "Source",
         "plan": base / "Project Plan",
-        "characters": base / "Project Plan" / "Character Profiles",
         "genre": base / "Project Genre",
         "references": base / "Project Genre" / "Character References",
         "photos": base / "Project Genre" / "Photos",
+        "videos": base / "Project Genre" / "Videos",
     }
     for key, path in paths.items():
         if key != "root":
@@ -41,23 +43,32 @@ def _atomic_text(path: Path, content: str) -> None:
 
 def save_project(root: str | Path, project: ProjectData) -> None:
     paths = ensure_project_folders(root)
-    scene_plan = {
-        "project_summary": project.project_summary,
-        "scenes": [scene.to_dict() for scene in project.scenes],
-    }
+    scene_plan = {"project_summary": project.project_summary, "scenes": [scene.to_dict() for scene in project.scenes]}
+    internal = paths["plan"] / "project.drama"
+    if internal.exists():
+        try: shutil.copy2(internal, paths["plan"] / "project.drama.recovery")
+        except OSError: pass
+    _atomic_text(internal, json.dumps(project.to_dict(), ensure_ascii=False, indent=2))
     _atomic_text(paths["plan"] / "Scene Plan.json", json.dumps(scene_plan, ensure_ascii=False, indent=2))
-    active_ids: set[str] = set()
-    for character in project.characters:
-        character_id = safe_id(str(character.get("character_id", "CHARACTER")))
-        active_ids.add(character_id)
-        _atomic_text(paths["characters"] / f"{character_id}.json", json.dumps(character, ensure_ascii=False, indent=2))
-    # Do not silently delete stale profiles; user-created files are preserved.
-    _atomic_text(paths["genre"] / "Photo Prompts.txt", render_photo_prompts(project))
-    _atomic_text(paths["genre"] / "Video Prompts.txt", render_video_prompts(project))
+    _atomic_text(paths["plan"] / "Scene Plan.txt", render_scene_plan(project))
+    _atomic_text(paths["plan"] / "Characters.txt", render_characters(project))
+    _atomic_text(paths["genre"] / "Photos Prompts.txt", render_photo_prompts(project))
+    _atomic_text(paths["genre"] / "Videos Prompts.txt", render_video_prompts(project))
 
 
 def load_project(root: str | Path) -> ProjectData:
     base = Path(root)
+    internal = base / "Project Plan" / "project.drama"
+    if internal.exists():
+        try:
+            with internal.open(encoding="utf-8") as stream:
+                return ProjectData.from_dict(json.load(stream))
+        except (OSError, json.JSONDecodeError):
+            recovery = internal.with_name("project.drama.recovery")
+            if recovery.exists():
+                with recovery.open(encoding="utf-8") as stream:
+                    return ProjectData.from_dict(json.load(stream))
+            raise
     path = base / "Project Plan" / "Scene Plan.json"
     with path.open(encoding="utf-8") as stream:
         data = json.load(stream)
@@ -85,11 +96,13 @@ def render_photo_prompts(project: ProjectData) -> str:
         "GENERATION_RULE: Process one marked block at a time; generate only scenes whose STATUS is APPROVED."
     ]
     for s in project.scenes:
+        if s.photo_status != "approved" or not s.photo_prompt.strip():
+            continue
         blocks.append(
             f"===== PHOTO_SCENE_BEGIN {s.prompt_id} =====\n"
-            f"PROMPT_ID: {s.prompt_id}\nASPECT_RATIO: 9:16\nSTATUS: {s.status.upper()}\n"
+            f"PROMPT_ID: {s.prompt_id}\nASPECT_RATIO: 9:16\n"
             f"CHARACTER_REFERENCES: {', '.join(s.characters) if s.characters else 'NONE'}\n"
-            f"LOCATION: {s.location}\n\n"
+            f"LOCATION: {s.location}\nSTATUS: APPROVED\n\n"
             f"<<<PHOTO_PROMPT_BEGIN>>>\n{s.photo_prompt.strip()}\n<<<PHOTO_PROMPT_END>>>\n\n"
             f"===== PHOTO_SCENE_END {s.prompt_id} ====="
         )
@@ -103,15 +116,40 @@ def render_video_prompts(project: ProjectData) -> str:
         "GENERATION_RULE: Process one marked block at a time; generate only scenes whose STATUS is APPROVED."
     ]
     for s in project.scenes:
+        if s.video_status != "approved" or not s.video_prompt.strip():
+            continue
         blocks.append(
             f"===== VIDEO_SCENE_BEGIN {s.prompt_id} =====\n"
             f"PROMPT_ID: {s.prompt_id}\nDURATION_SECONDS: {s.duration_seconds}\n"
-            f"SOURCE_PHOTO: {s.prompt_id}\nSTATUS: {s.status.upper()}\n"
+            f"SOURCE_PHOTO: {s.prompt_id}\nSTATUS: APPROVED\n"
             f"CHARACTER_REFERENCES: {', '.join(s.characters) if s.characters else 'NONE'}\n\n"
             f"<<<VIDEO_PROMPT_BEGIN>>>\n{s.video_prompt.strip()}\n<<<VIDEO_PROMPT_END>>>\n\n"
             f"===== VIDEO_SCENE_END {s.prompt_id} ====="
         )
     return "\n\n".join(blocks) + "\n"
+
+
+def render_scene_plan(project: ProjectData) -> str:
+    summary = project.project_summary
+    lines = [f"PROJECT: {project.project_name or summary.get('title', '')}",
+             f"THEME: {summary.get('main_theme', '')}", f"GENRE: {summary.get('genre', '')}",
+             f"STYLE: {summary.get('visual_style', '')}", ""]
+    for scene in project.scenes:
+        subtitles = " / ".join(f"{s.speaker}: {s.text}" for s in scene.subtitles)
+        lines.extend([f"<<<SCENE_START {scene.prompt_id}>>>", f"STATUS: {scene.status.upper()}",
+                      f"EPISODE: {scene.episode}", f"SCENE: {scene.scene}", f"LOCATION: {scene.location}",
+                      f"CHARACTERS: {', '.join(scene.characters)}", f"DURATION: {scene.duration_seconds}s",
+                      f"PLOT: {scene.plot}", f"ACTION: {scene.action}", f"SUBTITLES: {subtitles}",
+                      f"CAMERA: {scene.shot}", f"CONTINUITY: {scene.continuity}",
+                      f"<<<SCENE_END {scene.prompt_id}>>>", ""])
+    return "\n".join(lines)
+
+
+def render_characters(project: ProjectData) -> str:
+    blocks = []
+    for character in project.characters:
+        blocks.append(json.dumps(character, ensure_ascii=False, indent=2))
+    return "\n\n".join(blocks) + ("\n" if blocks else "")
 
 
 def extract_marked_prompt(content: str, prompt_id: str, kind: str = "PHOTO") -> str:

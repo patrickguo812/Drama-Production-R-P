@@ -35,6 +35,8 @@ class PipelineTests(unittest.TestCase):
         novel = ExtractedNovel("T", ["正文"], [("正文", "正文")])
         project = process_novel(novel, provider)
         self.assertEqual(project.scenes[0].prompt_id, "E001_S001")
+        self.assertEqual(project.scenes[0].photo_prompt, "")
+        self.assertEqual(project.scenes[0].video_status, "missing")
         self.assertEqual(len(provider.calls), 3)
 
     def test_cancellation_before_provider_call(self):

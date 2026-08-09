@@ -56,3 +56,18 @@ def save_ui_language(language: str) -> None:
     except (OSError, ValueError): data = {}
     data["ui_language"] = language
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def load_project_library() -> Path | None:
+    path = app_data_dir() / "settings.json"
+    try: value = json.loads(path.read_text(encoding="utf-8")).get("project_library", "")
+    except (OSError, ValueError): value = ""
+    return Path(value) if value else None
+
+
+def save_project_library(folder: str | Path) -> None:
+    path = app_data_dir() / "settings.json"
+    try: data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except (OSError, ValueError): data = {}
+    data["project_library"] = str(folder)
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")

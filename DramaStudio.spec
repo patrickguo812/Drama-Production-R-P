@@ -2,7 +2,7 @@
 import sys
 a = Analysis(['app.py'], pathex=[], binaries=[], datas=[], hiddenimports=['tkinter'], hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=[], noarchive=False)
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='DramaStudio', debug=False, bootloader_ignore_signals=False, strip=False, upx=True, console=False)
-coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=True, name='DramaStudio')
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='DramaStudio-Text-Production', debug=False, bootloader_ignore_signals=False, strip=False, upx=True, console=False)
+coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=True, name='DramaStudio-Text-Production')
 if sys.platform == 'darwin':
-    app = BUNDLE(coll, name='DramaStudio.app', icon=None, bundle_identifier='com.local.dramastudio', info_plist={'NSRequiresAquaSystemAppearance': True})
+    app = BUNDLE(coll, name='Drama Studio - Text Production.app', icon=None, bundle_identifier='com.local.dramastudio.textproduction', info_plist={'NSRequiresAquaSystemAppearance': True, 'CFBundleDisplayName': 'Drama Studio - Text Production'})
