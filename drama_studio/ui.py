@@ -205,7 +205,7 @@ class DramaStudioApp:
         ttk.Label(brand, text=self.t("tagline"), style="Sub.TLabel").pack(anchor="w")
         self.provider_label = ttk.Label(top, text=self.t("provider", provider=self.config.provider), style="Sub.TLabel")
         self.provider_label.pack(side="right", padx=(12, 0))
-        CurveButton(top, text=self.t("api_settings"), command=self.open_settings, variant="secondary", width=150).pack(side="right")
+        CurveButton(top, text=self.t("settings"), command=self.open_settings, variant="secondary", width=140).pack(side="right")
 
         setup_panel = BezierPanel(self.root, fill=self.colors["surface"], radius=24, height=138)
         setup_panel.pack(fill="x", padx=20, pady=(16, 12))
@@ -240,12 +240,7 @@ class DramaStudioApp:
         for key, label in self.nav_labels.items():
             button = CurveButton(sidebar, text=label, variant="nav", height=44, command=lambda page=key: self._show_page(page))
             button.pack(fill="x", pady=1); self.nav_buttons[key] = button
-        self.language_box = tk.Frame(sidebar, bg=self.colors["sidebar"]); self.language_box.pack(side="bottom", fill="x", padx=10, pady=12)
-        self.language_label = tk.Label(self.language_box, text=self.t("language"), bg=self.colors["sidebar"], fg="#C4DCF3", font=("Helvetica Neue", 9, "bold"), anchor="w"); self.language_label.pack(anchor="w", padx=8, pady=(0, 5))
-        self.language_buttons = tk.Frame(self.language_box, bg=self.colors["sidebar"]); self.language_buttons.pack(fill="x")
-        self.en_button = CurveButton(self.language_buttons, text="EN", command=lambda: self.switch_language("en"), variant="nav_active" if self.language == "en" else "nav", width=72, height=34); self.en_button.pack(side="left", padx=(0, 4))
-        self.zh_button = CurveButton(self.language_buttons, text="中文", command=lambda: self.switch_language("zh"), variant="nav_active" if self.language == "zh" else "nav", width=72, height=34); self.zh_button.pack(side="left")
-        self.sidebar_progress = tk.Frame(sidebar, bg=self.colors["sidebar"]); self.sidebar_progress.pack(side="bottom", fill="x", padx=12, pady=(8, 4))
+        self.sidebar_progress = tk.Frame(sidebar, bg=self.colors["sidebar"]); self.sidebar_progress.pack(side="bottom", fill="x", padx=12, pady=16)
         self.scene_progress_text = tk.StringVar(); self.prompt_progress_text = tk.StringVar()
         self.scene_progress_label = tk.Label(self.sidebar_progress, textvariable=self.scene_progress_text, bg=self.colors["sidebar"], fg="#F4FAFF", font=("Helvetica Neue", 9, "bold"), anchor="w")
         self.scene_progress_label.pack(fill="x", pady=(0, 3))
@@ -291,16 +286,6 @@ class DramaStudioApp:
         icons = {"projects": "▣", "preview": "▤", "summary": "◆", "scenes": "▦", "prompts": "✦"}
         for key, button in self.nav_buttons.items():
             button.configure(text=icons[key] if self.sidebar_collapsed else self.nav_labels[key])
-        if self.sidebar_collapsed:
-            self.language_label.pack_forget()
-            self.en_button.configure(width=48); self.zh_button.configure(width=48)
-            self.en_button.pack_forget(); self.zh_button.pack_forget()
-            self.en_button.pack(pady=2); self.zh_button.pack(pady=2)
-        else:
-            self.language_label.pack(anchor="w", padx=8, pady=(0, 5), before=self.language_buttons)
-            self.en_button.configure(width=72); self.zh_button.configure(width=72)
-            self.en_button.pack_forget(); self.zh_button.pack_forget()
-            self.en_button.pack(side="left", padx=(0, 4)); self.zh_button.pack(side="left")
         self.refresh_progress_display()
 
     def refresh_progress_display(self):
@@ -1088,16 +1073,19 @@ class DramaStudioApp:
 
 class SettingsDialog:
     def __init__(self, app: DramaStudioApp):
-        self.app = app; self.win = tk.Toplevel(app.root); self.win.title(app.t("api_title")); self.win.geometry("590x330"); self.win.transient(app.root); self.win.grab_set()
+        self.app = app; self.win = tk.Toplevel(app.root); self.win.title(app.t("settings_title")); self.win.geometry("590x390"); self.win.transient(app.root); self.win.grab_set()
         frame = ttk.Frame(self.win, padding=20); frame.pack(fill="both", expand=True)
         self.provider = tk.StringVar(value=app.config.provider); self.endpoint = tk.StringVar(value=app.config.endpoint); self.model = tk.StringVar(value=app.config.model); self.key = tk.StringVar(value=app.config.api_key)
-        ttk.Label(frame, text=app.t("provider", provider="").replace(": ", "")).grid(row=0, column=0, sticky="w", pady=6)
-        combo = ttk.Combobox(frame, textvariable=self.provider, values=("Demo", "DeepSeek", "Qwen"), state="readonly"); combo.grid(row=0, column=1, sticky="ew", pady=6); combo.bind("<<ComboboxSelected>>", self.changed)
-        for row, (label, variable) in enumerate(((app.t("api_endpoint"), self.endpoint), (app.t("model"), self.model)), 1):
+        self.ui_language = tk.StringVar(value="English" if app.language == "en" else "中文")
+        ttk.Label(frame, text=app.t("interface_language")).grid(row=0, column=0, sticky="w", pady=6)
+        ttk.Combobox(frame, textvariable=self.ui_language, values=("English", "中文"), state="readonly").grid(row=0, column=1, sticky="ew", pady=6)
+        ttk.Label(frame, text=app.t("provider", provider="").replace(": ", "")).grid(row=1, column=0, sticky="w", pady=6)
+        combo = ttk.Combobox(frame, textvariable=self.provider, values=("Demo", "DeepSeek", "Qwen"), state="readonly"); combo.grid(row=1, column=1, sticky="ew", pady=6); combo.bind("<<ComboboxSelected>>", self.changed)
+        for row, (label, variable) in enumerate(((app.t("api_endpoint"), self.endpoint), (app.t("model"), self.model)), 2):
             ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", pady=6); ttk.Entry(frame, textvariable=variable).grid(row=row, column=1, sticky="ew", pady=6)
-        ttk.Label(frame, text=app.t("api_key")).grid(row=3, column=0, sticky="w", pady=6); ttk.Entry(frame, textvariable=self.key, show="•").grid(row=3, column=1, sticky="ew", pady=6)
-        ttk.Label(frame, text=app.t("secure_key"), style="Sub.TLabel").grid(row=4, column=1, sticky="w")
-        buttons = ttk.Frame(frame); buttons.grid(row=5, column=1, sticky="e", pady=(22, 0))
+        ttk.Label(frame, text=app.t("api_key")).grid(row=4, column=0, sticky="w", pady=6); ttk.Entry(frame, textvariable=self.key, show="•").grid(row=4, column=1, sticky="ew", pady=6)
+        ttk.Label(frame, text=app.t("secure_key"), style="Sub.TLabel").grid(row=5, column=1, sticky="w")
+        buttons = ttk.Frame(frame); buttons.grid(row=6, column=1, sticky="e", pady=(22, 0))
         CurveButton(buttons, text=app.t("test_connection"), command=self.test, variant="secondary", width=132).pack(side="left", padx=5)
         CurveButton(buttons, text=app.t("save_settings"), command=self.save, variant="primary", width=125).pack(side="left")
         frame.columnconfigure(1, weight=1)
@@ -1126,4 +1114,8 @@ class SettingsDialog:
             if config.provider != "Demo" and config.api_key: save_api_key(config.provider, config.api_key)
             save_settings(config)
         except Exception as exc: messagebox.showerror(self.app.t("could_not_settings"), str(exc), parent=self.win); return
-        self.app.config = config; self.app.provider_label.configure(text=self.app.t("provider", provider=config.provider)); self.app.status_var.set(self.app.t("settings_saved")); self.win.destroy()
+        desired_language = "en" if self.ui_language.get() == "English" else "zh"
+        self.app.config = config; self.win.destroy()
+        if desired_language != self.app.language: self.app.switch_language(desired_language)
+        else:
+            self.app.provider_label.configure(text=self.app.t("provider", provider=config.provider)); self.app.status_var.set(self.app.t("settings_saved"))

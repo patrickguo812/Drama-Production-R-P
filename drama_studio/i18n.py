@@ -3,7 +3,7 @@ from __future__ import annotations
 TEXT = {
     "en": {
         "app_title": "Drama Studio - Text Production", "tagline": "Novel → production-ready short drama scenes",
-        "api_settings": "⚙  API Settings", "provider": "Provider: {provider}",
+        "api_settings": "⚙  API Settings", "settings": "⚙  Settings", "settings_title": "Settings", "interface_language": "Interface language", "provider": "Provider: {provider}",
         "project_folder": "① PROJECT FOLDER", "choose_parent": "Choose the large parent project folder",
         "choose_folder": "Choose folder", "word_novel": "② WORD NOVEL", "no_novel": "No Word novel selected",
         "import_docx": "Import .docx", "create_plan": "Create scene plan  →", "cancel": "Cancel",
@@ -88,7 +88,7 @@ TEXT = {
     },
     "zh": {
         "app_title": "短剧工作室 - 文本制作", "tagline": "小说 → 可直接制作的AI短剧分镜",
-        "api_settings": "⚙  API设置", "provider": "模型：{provider}",
+        "api_settings": "⚙  API设置", "settings": "⚙  设置", "settings_title": "设置", "interface_language": "界面语言", "provider": "模型：{provider}",
         "project_folder": "① 项目文件夹", "choose_parent": "选择存放项目的总文件夹",
         "choose_folder": "选择文件夹", "word_novel": "② WORD小说", "no_novel": "尚未选择Word小说",
         "import_docx": "导入 .docx", "create_plan": "生成分镜方案  →", "cancel": "取消",
