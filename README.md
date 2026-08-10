@@ -43,7 +43,12 @@ The image/video folders are prepared for the later generation stage. This MVP st
 - Automatic scene-to-photo/video-prompt processing without a scene approval pause
 - Editable Scene Board with selected-scene regeneration and a separate Prompt Board approval stage
 - Draft/reviewed/approved status per prompt
+- Per-prompt checkboxes for mixed photo/video batch actions
 - Editing any scene clears its obsolete prompts automatically
+- Editable global/project Quality Rulebook with camera, duration, continuity, prompt, and wording rules
+- Automatic returned-scene inspection and targeted repair before prompt generation
+- Feedback-to-rule review flow with Modify, Submit to Rulebook, and one-time correction options
+- Feedback-driven scene splitting with automatic renumbering and prompt replacement
 - Regenerate one field, both prompts, or the complete selected scene
 - Automatic prompt character counts and atomic autosaving
 - Cancellation between API calls and retry handling for temporary provider failures

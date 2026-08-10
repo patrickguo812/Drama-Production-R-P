@@ -32,6 +32,8 @@ class Scene:
     status: str = "draft"
     photo_status: str = "missing"
     video_status: str = "missing"
+    quality_status: str = "unchecked"
+    quality_notes: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Scene":
@@ -52,6 +54,7 @@ class ProjectData:
     characters: list[dict[str, Any]] = field(default_factory=list)
     scenes: list[Scene] = field(default_factory=list)
     processing: dict[str, Any] = field(default_factory=dict)
+    rules: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ProjectData":
@@ -62,6 +65,7 @@ class ProjectData:
             characters=data.get("characters", []),
             scenes=[Scene.from_dict(s) for s in data.get("scenes", [])],
             processing=data.get("processing", {}),
+            rules=data.get("rules", []),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -72,4 +76,5 @@ class ProjectData:
             "characters": self.characters,
             "scenes": [s.to_dict() for s in self.scenes],
             "processing": self.processing,
+            "rules": self.rules,
         }

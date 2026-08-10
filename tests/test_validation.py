@@ -17,7 +17,7 @@ class ValidationTests(unittest.TestCase):
         data["scenes"][0]["status"] = "unknown"
         project = normalize_project(data)
         self.assertEqual(project.scenes[0].prompt_id, "E001_S001")
-        self.assertEqual(project.scenes[0].duration_seconds, 15)
+        self.assertEqual(project.scenes[0].duration_seconds, 10)
         self.assertEqual(project.scenes[0].status, "draft")
 
     def test_detects_missing_profile(self):

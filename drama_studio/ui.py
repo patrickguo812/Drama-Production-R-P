@@ -22,6 +22,9 @@ from .project_library import (create_project, duplicate_project, invalidate_scen
     move_project_to_trash, permanently_delete_trash_item, purge_expired_trash,
     rename_project, restore_project, scan_projects, scan_trash)
 from .providers import DEFAULTS, ChatProvider
+from .quality import analyze_feedback, apply_scene_feedback, inspect_prompt, inspect_scene, renumber_scenes
+from .rulebook import (Rule, active_rules, compile_rules, load_global_rules, new_rule,
+                       project_rules, save_global_rules)
 from .settings import (load_project_library, load_settings, load_ui_language,
                        save_project_library, save_settings, save_ui_language)
 from .storage import ensure_project_folders, load_project, save_project
@@ -153,6 +156,8 @@ class DramaStudioApp:
         self.project = ProjectData()
         self.selected_scene: int | None = None
         self.checked_scene_ids: set[str] = set()
+        self.checked_prompt_ids: set[str] = set()
+        self.global_rules = load_global_rules()
         self.sidebar_collapsed = False
         self.busy = False
         self.cancel_event = threading.Event()
@@ -215,7 +220,9 @@ class DramaStudioApp:
         ttk.Label(brand, text=self.t("tagline"), style="Sub.TLabel").pack(anchor="w")
         self.provider_label = ttk.Label(top, text=self.t("provider", provider=self.config.provider), style="Sub.TLabel")
         self.provider_label.pack(side="right", padx=(12, 0))
-        CurveButton(top, text=self.t("settings"), command=self.open_settings, variant="secondary", width=140).pack(side="right")
+        top_actions = ttk.Frame(top, style="Surface.TFrame"); top_actions.pack(side="right")
+        CurveButton(top_actions, text=self.t("settings"), command=self.open_settings, variant="secondary", width=140, height=36).pack()
+        CurveButton(top_actions, text=self.t("rulebook"), command=lambda: self._show_page("rulebook"), variant="ghost", width=140, height=32).pack(pady=(4, 0))
 
         setup_panel = BezierPanel(self.root, fill=self.colors["surface"], radius=24, height=138)
         setup_panel.pack(fill="x", padx=20, pady=(16, 12))
@@ -266,7 +273,8 @@ class DramaStudioApp:
         self.summary_tab = tk.Frame(self.page_container, bg=self.colors["bg"], padx=18, pady=14)
         self.scenes_tab = tk.Frame(self.page_container, bg=self.colors["bg"], padx=14, pady=12)
         self.prompts_tab = tk.Frame(self.page_container, bg=self.colors["bg"], padx=14, pady=12)
-        self.pages = {"projects": self.projects_tab, "preview": self.preview_tab, "summary": self.summary_tab, "scenes": self.scenes_tab, "prompts": self.prompts_tab}
+        self.rulebook_tab = tk.Frame(self.page_container, bg=self.colors["bg"], padx=14, pady=12)
+        self.pages = {"projects": self.projects_tab, "preview": self.preview_tab, "summary": self.summary_tab, "scenes": self.scenes_tab, "prompts": self.prompts_tab, "rulebook": self.rulebook_tab}
         for page in self.pages.values(): page.grid(row=0, column=0, sticky="nsew")
         self.page_container.rowconfigure(0, weight=1); self.page_container.columnconfigure(0, weight=1)
         self._build_projects()
@@ -274,6 +282,7 @@ class DramaStudioApp:
         self._build_summary()
         self._build_scenes()
         self._build_prompts()
+        self._build_rulebook()
         self._show_page("projects" if not self.project_root else "preview")
 
         bottom = ttk.Frame(self.root, padding=(22, 2, 22, 14))
@@ -287,6 +296,7 @@ class DramaStudioApp:
         self.current_page = key
         self.pages[key].tkraise()
         for name, button in self.nav_buttons.items(): button.configure(style="ActiveNav.TButton" if name == key else "Nav.TButton")
+        if key == "rulebook" and hasattr(self, "rule_tree"): self.refresh_rulebook()
 
     def toggle_sidebar(self):
         self.sidebar_collapsed = not self.sidebar_collapsed
@@ -589,6 +599,8 @@ class DramaStudioApp:
         self.scene_count_var = tk.StringVar(value="0 scenes")
         ttk.Label(top, textvariable=self.scene_count_var, style="Status.TLabel").pack(side="left", padx=12, pady=(5, 0))
         CurveButton(top, text=self.t("add_scene"), command=self.add_scene, variant="secondary", width=120).pack(side="right")
+        self.scene_task_var = tk.StringVar(value="")
+        ttk.Label(self.scenes_tab, textvariable=self.scene_task_var, style="Status.TLabel").pack(fill="x", pady=(0, 5))
         bulk = ttk.Frame(self.scenes_tab); bulk.pack(fill="x", pady=(0, 8))
         for column in range(5): bulk.columnconfigure(column, weight=1)
         CurveButton(bulk, text=self.t("select_all"), command=self.check_all_scenes, variant="ghost", height=34).grid(row=0, column=0, sticky="ew", padx=2)
@@ -601,8 +613,8 @@ class DramaStudioApp:
         right_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20)
         left, right = left_panel.content, right_panel.content
         pane.add(left_panel, weight=3); pane.add(right_panel, weight=5)
-        self.scene_tree = ttk.Treeview(left, columns=("check", "id", "loc"), show="headings", selectmode="extended")
-        for column, label, width in (("check", self.t("select"), 58), ("id", self.t("scene"), 110), ("loc", self.t("location"), 220)):
+        self.scene_tree = ttk.Treeview(left, columns=("check", "id", "quality", "loc"), show="headings", selectmode="extended")
+        for column, label, width in (("check", self.t("select"), 52), ("id", self.t("scene"), 100), ("quality", self.t("quality"), 105), ("loc", self.t("location"), 190)):
             self.scene_tree.heading(column, text=label); self.scene_tree.column(column, width=width, anchor="w")
         self.scene_tree.pack(fill="both", expand=True)
         self.scene_tree.bind("<<TreeviewSelect>>", self.select_scene)
@@ -614,6 +626,9 @@ class DramaStudioApp:
         CurveButton(moves, text=self.t("move_down"), command=lambda: self.move_scene(1), variant="ghost", height=32).grid(row=0, column=2, sticky="ew", padx=2)
         inspector_head = ttk.Frame(right, style="Surface.TFrame"); inspector_head.pack(fill="x", pady=(0, 8))
         ttk.Label(inspector_head, text=self.t("scene_inspector"), style="Section.TLabel").pack(side="left")
+        self.scene_quality_var = tk.StringVar(value="")
+        ttk.Label(inspector_head, textvariable=self.scene_quality_var, style="Sub.TLabel").pack(side="left", padx=10)
+        CurveButton(inspector_head, text=self.t("submit_feedback"), command=lambda: self.start_feedback("scene"), variant="secondary", width=140, height=34).pack(side="right")
         tabs = ttk.Notebook(right); tabs.pack(fill="both", expand=True)
         story_tab = ttk.Frame(tabs, style="Surface.TFrame"); craft_tab = ttk.Frame(tabs, style="Surface.TFrame"); generation_tab = ttk.Frame(tabs, style="Surface.TFrame")
         tabs.add(story_tab, text=self.t("story_tab")); tabs.add(craft_tab, text=self.t("craft_tab")); tabs.add(generation_tab, text=self.t("generation_tab"))
@@ -652,6 +667,9 @@ class DramaStudioApp:
         ttk.Label(top, text=self.t("prompt_board_title"), style="PageTitle.TLabel").pack(side="left")
         self.prompt_count_var = tk.StringVar(value="")
         ttk.Label(top, textvariable=self.prompt_count_var, style="Status.TLabel").pack(side="left", padx=12)
+        CurveButton(top, text=self.t("submit_feedback"), command=lambda: self.start_feedback("prompt"), variant="secondary", width=140, height=34).pack(side="right")
+        self.prompt_task_var = tk.StringVar(value="")
+        ttk.Label(self.prompts_tab, textvariable=self.prompt_task_var, style="Status.TLabel").pack(fill="x", pady=(0, 5))
         prompt_bulk = ttk.Frame(self.prompts_tab); prompt_bulk.pack(fill="x", pady=(0, 8))
         for column in range(7): prompt_bulk.columnconfigure(column, weight=1)
         CurveButton(prompt_bulk, text=self.t("select_all"), command=self.select_all_prompts, variant="ghost", height=34).grid(row=0, column=0, sticky="ew", padx=2)
@@ -663,15 +681,298 @@ class DramaStudioApp:
         pane = ttk.Panedwindow(self.prompts_tab, orient="horizontal"); pane.pack(fill="both", expand=True)
         left_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20); right_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20)
         pane.add(left_panel, weight=3); pane.add(right_panel, weight=4)
-        self.prompt_tree = ttk.Treeview(left_panel.content, columns=("scene", "kind", "status", "preview"), show="headings", selectmode="extended")
-        for column, label, width in (("scene", self.t("scene"), 105), ("kind", self.t("prompt_type"), 80), ("status", self.t("status"), 90), ("preview", self.t("prompt_preview"), 230)):
+        self.prompt_tree = ttk.Treeview(left_panel.content, columns=("check", "scene", "kind", "status", "preview"), show="headings", selectmode="browse")
+        for column, label, width in (("check", self.t("select"), 55), ("scene", self.t("scene"), 105), ("kind", self.t("prompt_type"), 80), ("status", self.t("status"), 90), ("preview", self.t("prompt_preview"), 230)):
             self.prompt_tree.heading(column, text=label); self.prompt_tree.column(column, width=width, anchor="w")
         self.prompt_tree.pack(fill="both", expand=True); self.prompt_tree.bind("<<TreeviewSelect>>", self.show_prompt)
+        self.prompt_tree.bind("<Button-1>", self.toggle_prompt_check, add="+")
         ttk.Label(right_panel.content, text=self.t("prompt_inspector"), style="Section.TLabel").pack(anchor="w", pady=(0, 8))
         prompt_panel, self.prompt_editor = self._curved_text(right_panel.content, 18, width=60); prompt_panel.pack(fill="both", expand=True)
         self.prompt_char_var = tk.StringVar(value=""); ttk.Label(right_panel.content, textvariable=self.prompt_char_var, style="Sub.TLabel").pack(anchor="e", pady=4)
         actions = ttk.Frame(right_panel.content); actions.pack(fill="x", pady=(6, 0))
         CurveButton(actions, text=self.t("save_prompt"), command=self.save_prompt_edit, variant="secondary", width=115).pack(side="right")
+
+    def _build_rulebook(self):
+        top = tk.Frame(self.rulebook_tab, bg=self.colors["bg"]); top.pack(fill="x", pady=(0, 8))
+        ttk.Label(top, text=self.t("rulebook_title"), style="PageTitle.TLabel").pack(side="left")
+        CurveButton(top, text=self.t("create_new_rule"), command=lambda: self.start_feedback("new_rule"), variant="primary", width=150, height=36).pack(side="right")
+        CurveButton(top, text=self.t("submit_feedback"), command=lambda: self.start_feedback("rulebook"), variant="secondary", width=150, height=36).pack(side="right", padx=6)
+        self.rule_task_var = tk.StringVar(value="")
+        ttk.Label(self.rulebook_tab, textvariable=self.rule_task_var, style="Status.TLabel").pack(fill="x", pady=(0, 6))
+        filter_row = ttk.Frame(self.rulebook_tab); filter_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(filter_row, text=self.t("search_rules"), style="Status.TLabel").pack(side="left", padx=(0, 6))
+        self.rule_search_var = tk.StringVar(); ttk.Entry(filter_row, textvariable=self.rule_search_var).pack(side="left", fill="x", expand=True)
+        self.rule_search_var.trace_add("write", lambda *_args: self.refresh_rulebook())
+        pane = ttk.Panedwindow(self.rulebook_tab, orient="horizontal"); pane.pack(fill="both", expand=True)
+        left_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20); right_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20)
+        pane.add(left_panel, weight=3); pane.add(right_panel, weight=4)
+        self.rule_tree = ttk.Treeview(left_panel.content, columns=("enabled", "title", "category", "scope"), show="headings", selectmode="browse")
+        for column, label, width in (("enabled", self.t("enabled"), 70), ("title", self.t("rule_name"), 210), ("category", self.t("rule_category"), 120), ("scope", self.t("rule_scope"), 100)):
+            self.rule_tree.heading(column, text=label); self.rule_tree.column(column, width=width, anchor="w")
+        self.rule_tree.pack(fill="both", expand=True); self.rule_tree.bind("<<TreeviewSelect>>", self.show_rule)
+        rule_actions = ttk.Frame(left_panel.content, style="Surface.TFrame"); rule_actions.pack(fill="x", pady=(6, 0))
+        CurveButton(rule_actions, text=self.t("enable_disable"), command=self.toggle_rule, variant="secondary", width=130, height=32).pack(side="left")
+        CurveButton(rule_actions, text=self.t("delete_rule"), command=self.delete_rule, variant="danger", width=110, height=32).pack(side="left", padx=4)
+        ttk.Label(right_panel.content, text=self.t("rule_details"), style="Section.TLabel").pack(anchor="w", pady=(0, 6))
+        self.rule_title_var = tk.StringVar(); self.rule_category_var = tk.StringVar(); self.rule_scope_var = tk.StringVar()
+        for label, variable in ((self.t("rule_name"), self.rule_title_var), (self.t("rule_category"), self.rule_category_var)):
+            ttk.Label(right_panel.content, text=label, style="Sub.TLabel").pack(anchor="w"); ttk.Entry(right_panel.content, textvariable=variable).pack(fill="x", pady=(2, 6))
+        ttk.Label(right_panel.content, text=self.t("rule_scope"), style="Sub.TLabel").pack(anchor="w")
+        ttk.Combobox(right_panel.content, textvariable=self.rule_scope_var, values=("global", "project"), state="readonly").pack(fill="x", pady=(2, 6))
+        ttk.Label(right_panel.content, text=self.t("rule_text"), style="Sub.TLabel").pack(anchor="w")
+        panel, self.rule_text_editor = self._curved_text(right_panel.content, 9, width=58); panel.pack(fill="both", expand=True, pady=(2, 6))
+        ttk.Label(right_panel.content, text=self.t("rule_exception"), style="Sub.TLabel").pack(anchor="w")
+        exception_panel, self.rule_exception_editor = self._curved_text(right_panel.content, 3, width=58); exception_panel.pack(fill="x", pady=(2, 6))
+        CurveButton(right_panel.content, text=self.t("save_rule_changes"), command=self.save_rule_edit, variant="primary", width=150, height=36).pack(anchor="e")
+        self.refresh_rulebook()
+
+    def _all_rules(self):
+        return [*self.global_rules, *project_rules(self.project)]
+
+    def _active_rule_text(self):
+        return compile_rules(active_rules(self.global_rules, self.project))
+
+    def refresh_rulebook(self):
+        if not hasattr(self, "rule_tree"): return
+        self.rule_tree.delete(*self.rule_tree.get_children())
+        query = self.rule_search_var.get().strip().casefold() if hasattr(self, "rule_search_var") else ""
+        for rule in self._all_rules():
+            haystack = f"{rule.title} {rule.category} {rule.text}".casefold()
+            if query and query not in haystack: continue
+            self.rule_tree.insert("", "end", iid=rule.rule_id, values=("✓" if rule.enabled else "—", rule.title, rule.category, self.t("scope_project" if rule.scope == "project" else "scope_global")))
+
+    def _find_rule(self, rule_id):
+        return next((rule for rule in self._all_rules() if rule.rule_id == rule_id), None)
+
+    def show_rule(self, _event=None):
+        selected = self.rule_tree.selection()
+        if not selected: return
+        rule = self._find_rule(selected[0])
+        if not rule: return
+        self.rule_title_var.set(rule.title); self.rule_category_var.set(rule.category); self.rule_scope_var.set(rule.scope)
+        self._set_text(self.rule_text_editor, rule.text); self._set_text(self.rule_exception_editor, rule.exception)
+
+    def _persist_rule(self, rule: Rule):
+        if rule.scope == "project":
+            rules = project_rules(self.project)
+            match = next((index for index, item in enumerate(rules) if item.rule_id == rule.rule_id), None)
+            if match is None: rules.append(rule)
+            else: rules[match] = rule
+            self.project.rules = [item.to_dict() for item in rules]
+            if self.project_root: save_project(self.project_root, self.project)
+        else:
+            match = next((index for index, item in enumerate(self.global_rules) if item.rule_id == rule.rule_id), None)
+            if match is None: self.global_rules.append(rule)
+            else: self.global_rules[match] = rule
+            save_global_rules(self.global_rules)
+
+    def save_rule_edit(self):
+        selected = self.rule_tree.selection()
+        if not selected: return
+        rule = self._find_rule(selected[0])
+        if not rule: return
+        old_scope = rule.scope
+        rule.title = self.rule_title_var.get().strip() or rule.title
+        rule.category = self.rule_category_var.get().strip() or rule.category
+        rule.text = self.rule_text_editor.get("1.0", "end").strip()
+        rule.exception = self.rule_exception_editor.get("1.0", "end").strip()
+        if not rule.built_in: rule.scope = self.rule_scope_var.get() or rule.scope
+        if old_scope != rule.scope:
+            if old_scope == "project": self.project.rules = [item for item in self.project.rules if item.get("rule_id") != rule.rule_id]
+            else: self.global_rules = [item for item in self.global_rules if item.rule_id != rule.rule_id]
+        self._persist_rule(rule); self.refresh_rulebook(); self.rule_task_var.set(self.t("rule_saved"))
+
+    def toggle_rule(self):
+        selected = self.rule_tree.selection()
+        if not selected: return
+        rule = self._find_rule(selected[0])
+        if not rule: return
+        rule.enabled = not rule.enabled; self._persist_rule(rule); self.refresh_rulebook()
+
+    def delete_rule(self):
+        selected = self.rule_tree.selection()
+        if not selected: return
+        rule = self._find_rule(selected[0])
+        if not rule: return
+        if rule.built_in:
+            messagebox.showinfo(self.t("built_in_rule"), self.t("built_in_rule_body")); return
+        if not messagebox.askyesno(self.t("delete_rule"), self.t("delete_rule_confirm", name=rule.title)): return
+        if rule.scope == "project":
+            self.project.rules = [item for item in self.project.rules if item.get("rule_id") != rule.rule_id]
+            if self.project_root: save_project(self.project_root, self.project)
+        else:
+            self.global_rules = [item for item in self.global_rules if item.rule_id != rule.rule_id]; save_global_rules(self.global_rules)
+        self.refresh_rulebook()
+
+    def _ask_long_text(self, title, prompt, initial=""):
+        win = tk.Toplevel(self.root); win.title(title); win.geometry("650x420"); win.transient(self.root); win.grab_set()
+        result = {"value": None}; frame = ttk.Frame(win, padding=16); frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=prompt, style="Section.TLabel", wraplength=600).pack(anchor="w", pady=(0, 8))
+        text = tk.Text(frame, wrap="word", padx=10, pady=10, relief="flat", background="#FBFDFF"); text.pack(fill="both", expand=True)
+        text.insert("1.0", initial); text.focus_set()
+        actions = ttk.Frame(frame); actions.pack(fill="x", pady=(10, 0))
+        def submit():
+            value = text.get("1.0", "end").strip()
+            if value: result["value"] = value; win.destroy()
+        CurveButton(actions, text=self.t("submit"), command=submit, variant="primary", width=120).pack(side="right")
+        CurveButton(actions, text=self.t("cancel"), command=win.destroy, variant="secondary", width=100).pack(side="right", padx=6)
+        win.protocol("WM_DELETE_WINDOW", win.destroy); self.root.wait_window(win)
+        return result["value"]
+
+    def _board_task_var(self, origin):
+        return self.scene_task_var if origin == "scene" else self.prompt_task_var if origin == "prompt" else self.rule_task_var
+
+    def start_feedback(self, origin):
+        if self.busy: return
+        if self.config.provider != "Demo" and not self.config.api_key:
+            messagebox.showinfo(self.t("api_required"), self.t("api_required_body")); return
+        context = ""; indexes = []; jobs = []
+        if origin == "scene":
+            indexes = self._scene_action_indexes()
+            if len(indexes) != 1:
+                messagebox.showinfo(self.t("select_one_scene"), self.t("select_one_scene_feedback")); return
+            self.apply_scene(silent=True); context = json.dumps(self.project.scenes[indexes[0]].to_dict(), ensure_ascii=False)
+        elif origin == "prompt":
+            selected = self._prompt_action_iids()
+            if not selected:
+                messagebox.showinfo(self.t("nothing_selected"), self.t("select_prompt_action_body")); return
+            jobs = [(int(iid.split(":", 1)[0]), iid.split(":", 1)[1]) for iid in selected]
+            context = json.dumps([{"scene": self.project.scenes[index].to_dict(), "prompt_type": kind} for index, kind in jobs], ensure_ascii=False)
+        feedback = self._ask_long_text(self.t("submit_feedback"), self.t("feedback_prompt" if origin != "new_rule" else "new_rule_prompt"))
+        if not feedback: return
+        self.pending_feedback = {"origin": origin, "feedback": feedback, "context": context, "indexes": indexes, "jobs": jobs, "modification": ""}
+        self._analyze_pending_feedback()
+
+    def _analyze_pending_feedback(self):
+        pending = self.pending_feedback; self.busy = True
+        task = self._board_task_var(pending["origin"]); task.set(self.t("analyzing_feedback"))
+        def worker():
+            try:
+                proposal = analyze_feedback(ChatProvider(self.config), pending["feedback"], pending["context"], self._active_rule_text(), pending.get("modification", ""))
+                self.root.after(0, self._feedback_analysis_done, proposal, None)
+            except Exception as exc: self.root.after(0, self._feedback_analysis_done, None, exc)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _feedback_analysis_done(self, proposal, error):
+        self.busy = False; pending = self.pending_feedback; task = self._board_task_var(pending["origin"])
+        if error: task.set(""); messagebox.showerror(self.t("feedback_failed"), str(error)); return
+        task.set(self.t("feedback_ready_review"))
+        decision = self._review_rule_proposal(proposal, allow_once=pending["origin"] in ("scene", "prompt"))
+        if decision["action"] == "modify":
+            modification = self._ask_long_text(self.t("modify_rule"), self.t("modification_prompt"))
+            if modification:
+                pending["modification"] = modification; self._analyze_pending_feedback()
+            return
+        if decision["action"] in ("submit", "once"):
+            if decision["action"] == "submit":
+                scope = decision["scope"] if self.project_root else "global"
+                category = proposal.get("category", "General")
+                rule = new_rule(proposal.get("title", "New rule"), category, proposal.get("rule", ""), proposal.get("applies_when", ""), proposal.get("exception", ""), scope, "word" if category == "Word preference" else "rule")
+                self._persist_rule(rule); self.refresh_rulebook()
+            if pending["origin"] in ("scene", "prompt"):
+                self._apply_feedback_correction(proposal)
+            else: task.set(self.t("rule_saved" if decision["action"] == "submit" else ""))
+        else: task.set("")
+
+    def _review_rule_proposal(self, proposal, allow_once=False):
+        win = tk.Toplevel(self.root); win.title(self.t("review_rule")); win.geometry("800x650"); win.transient(self.root); win.grab_set()
+        result = {"action": "cancel", "scope": proposal.get("recommended_scope", "global")}; frame = ttk.Frame(win, padding=16); frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=self.t("agent_rule_proposal"), style="PageTitle.TLabel").pack(anchor="w")
+        content = tk.Text(frame, wrap="word", padx=12, pady=12, relief="flat", background="#FBFDFF")
+        content.insert("1.0", f"{self.t('agent_interpretation')}:\n{proposal.get('interpretation','')}\n\n{self.t('rule_name')}:\n{proposal.get('title','')}\n\n{self.t('rule_category')}:\n{proposal.get('category','')}\n\n{self.t('rule_text')}:\n{proposal.get('rule','')}\n\n{self.t('applies_when')}:\n{proposal.get('applies_when','')}\n\n{self.t('rule_exception')}:\n{proposal.get('exception','')}")
+        content.configure(state="disabled"); content.pack(fill="both", expand=True, pady=8)
+        if not self.project_root: result["scope"] = "global"
+        scope = tk.StringVar(value=result["scope"]); ttk.Combobox(frame, textvariable=scope, values=(("global", "project") if self.project_root else ("global",)), state="readonly").pack(fill="x")
+        actions = ttk.Frame(frame); actions.pack(fill="x", pady=(10, 0))
+        def choose(action): result["action"] = action; result["scope"] = scope.get(); win.destroy()
+        CurveButton(actions, text=self.t("submit_to_rulebook"), command=lambda: choose("submit"), variant="primary", width=160).pack(side="right")
+        CurveButton(actions, text=self.t("modify"), command=lambda: choose("modify"), variant="secondary", width=110).pack(side="right", padx=5)
+        if allow_once: CurveButton(actions, text=self.t("use_once"), command=lambda: choose("once"), variant="ghost", width=120).pack(side="right", padx=5)
+        CurveButton(actions, text=self.t("cancel"), command=win.destroy, variant="ghost", width=90).pack(side="left")
+        win.protocol("WM_DELETE_WINDOW", win.destroy); self.root.wait_window(win); return result
+
+    def _apply_feedback_correction(self, proposal):
+        pending = self.pending_feedback; origin = pending["origin"]
+        if origin == "scene":
+            index = pending["indexes"][0]; self.busy = True; self.scene_task_var.set(self.t("repairing_selected_scene"))
+            def worker():
+                try:
+                    scenes, report = apply_scene_feedback(self.project, index, pending["feedback"], ChatProvider(self.config), self._active_rule_text())
+                    self.root.after(0, self._scene_feedback_ready, index, scenes, report, None)
+                except Exception as exc: self.root.after(0, self._scene_feedback_ready, index, None, None, exc)
+            threading.Thread(target=worker, daemon=True).start()
+        elif origin == "prompt":
+            self.busy = True; self.prompt_task_var.set(self.t("repairing_selected_prompts"))
+            threading.Thread(target=self._prompt_feedback_worker, daemon=True).start()
+
+    def _scene_feedback_ready(self, index, scenes, report, error):
+        self.busy = False
+        if error: self.scene_task_var.set(""); messagebox.showerror(self.t("feedback_failed"), str(error)); return
+        if not self._review_split_replacement(self.project.scenes[index], scenes):
+            self.scene_task_var.set(""); return
+        self.project.scenes[index:index + 1] = scenes
+        renumber_scenes(self.project.scenes)
+        for scene in scenes: invalidate_scene_prompts(scene)
+        save_project(self.project_root, self.project); self.refresh_all(); self._show_page("scenes")
+        self.busy = True; self.scene_task_var.set(self.t("generating_replacement_prompts"))
+        threading.Thread(target=self._replacement_prompt_worker, args=(index, len(scenes)), daemon=True).start()
+
+    def _review_split_replacement(self, original, replacements):
+        win = tk.Toplevel(self.root); win.title(self.t("review_scene_replacement")); win.geometry("900x650"); win.transient(self.root); win.grab_set()
+        result = {"accept": False}; frame = ttk.Frame(win, padding=16); frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=self.t("replacement_summary", old=original.prompt_id, count=len(replacements)), style="PageTitle.TLabel").pack(anchor="w")
+        text = tk.Text(frame, wrap="word", padx=12, pady=12, relief="flat", background="#FBFDFF")
+        text.insert("1.0", json.dumps({"original": original.to_dict(), "replacement_scenes": [scene.to_dict() for scene in replacements]}, ensure_ascii=False, indent=2)); text.configure(state="disabled"); text.pack(fill="both", expand=True, pady=8)
+        actions = ttk.Frame(frame); actions.pack(fill="x")
+        def accept(): result["accept"] = True; win.destroy()
+        CurveButton(actions, text=self.t("accept_new"), command=accept, variant="primary", width=140).pack(side="right")
+        CurveButton(actions, text=self.t("keep_original"), command=win.destroy, variant="secondary", width=140).pack(side="right", padx=6)
+        win.protocol("WM_DELETE_WINDOW", win.destroy); self.root.wait_window(win); return result["accept"]
+
+    def _replacement_prompt_worker(self, start, count):
+        try:
+            provider = ChatProvider(self.config); rules = self._active_rule_text()
+            for offset in range(count):
+                index = start + offset
+                generated = regenerate_scene(self.project, index, provider, True, rules)
+                scene = self.project.scenes[index]
+                scene.photo_prompt, scene.video_prompt = generated.photo_prompt, generated.video_prompt
+                scene.photo_status = scene.video_status = "draft"
+                save_project(self.project_root, self.project)
+                self.root.after(0, self.scene_task_var.set, self.t("replacement_prompt_progress", done=offset + 1, total=count))
+            self.root.after(0, self._replacement_prompts_done, None)
+        except Exception as exc: self.root.after(0, self._replacement_prompts_done, exc)
+
+    def _replacement_prompts_done(self, error):
+        self.busy = False; self.refresh_all()
+        if error: self.scene_task_var.set(self.t("replacement_prompts_incomplete")); messagebox.showerror(self.t("processing_failed"), str(error)); return
+        self.scene_task_var.set(""); self._show_page("prompts"); self.prompt_task_var.set(self.t("feedback_correction_complete"))
+
+    def _prompt_feedback_worker(self):
+        pending = self.pending_feedback; results = []
+        try:
+            provider = ChatProvider(self.config); rules = self._active_rule_text(); jobs = pending["jobs"]
+            for position, (index, kind) in enumerate(jobs, 1):
+                field = "photo_prompt" if kind == "photo" else "video_prompt"
+                value = regenerate_field(self.project, index, field, provider, rules, pending["feedback"])
+                probe = Scene.from_dict(self.project.scenes[index].to_dict()); setattr(probe, field, value)
+                issues = inspect_prompt(probe, kind)
+                if issues: value = regenerate_field(self.project, index, field, provider, rules, "；".join(issue.message for issue in issues))
+                results.append((index, kind, value))
+                self.root.after(0, self.prompt_task_var.set, self.t("feedback_prompt_progress", done=position, total=len(jobs)))
+            self.root.after(0, self._prompt_feedback_done, results, None)
+        except Exception as exc: self.root.after(0, self._prompt_feedback_done, results, exc)
+
+    def _prompt_feedback_done(self, results, error):
+        self.busy = False
+        for index, kind, value in results:
+            scene = self.project.scenes[index]
+            if kind == "photo": scene.photo_prompt, scene.photo_status = value, "draft"
+            else: scene.video_prompt, scene.video_status = value, "draft"
+        if results: save_project(self.project_root, self.project)
+        self.refresh_all(); self._show_page("prompts")
+        if error: self.prompt_task_var.set(""); messagebox.showerror(self.t("feedback_failed"), str(error)); return
+        self.prompt_task_var.set(self.t("feedback_correction_complete"))
 
     def _scrollable_form(self, parent):
         canvas = tk.Canvas(parent, highlightthickness=0, background=self.colors["surface"])
@@ -724,9 +1025,10 @@ class DramaStudioApp:
     def _process_worker(self):
         try:
             provider = ChatProvider(self.config)
-            project = process_novel(self.novel, provider, self._scene_thread_progress, self.cancel_event.is_set)
+            project = process_novel(self.novel, provider, self._scene_thread_progress, self.cancel_event.is_set, self._active_rule_text())
             project.project_name = self.project.project_name or self.project_root.name
             project.source_document = self.project.source_document
+            project.rules = list(self.project.rules)
             project.processing = {"scene_percent": 100, "scene_done": len(project.scenes), "scene_total": len(project.scenes),
                                   "prompt_percent": 0, "prompt_done": 0, "prompt_total": len(project.scenes) * 2}
             save_project(self.project_root, project)
@@ -735,7 +1037,16 @@ class DramaStudioApp:
             for index, original in enumerate(project.scenes):
                 if self.cancel_event.is_set(): break
                 try:
-                    generated = regenerate_scene(project, index, provider, prompts_only=True)
+                    if original.quality_status == "needs_attention":
+                        failed.append(original.prompt_id); continue
+                    generated = regenerate_scene(project, index, provider, prompts_only=True, rule_text=self._active_rule_text())
+                    for kind in ("photo", "video"):
+                        issues = inspect_prompt(generated, kind)
+                        if issues:
+                            field = "photo_prompt" if kind == "photo" else "video_prompt"
+                            correction = "；".join(issue.message for issue in issues)
+                            value = regenerate_field(project, index, field, provider, self._active_rule_text(), correction)
+                            setattr(generated, field, value)
                     original.photo_prompt, original.video_prompt = generated.photo_prompt, generated.video_prompt
                     original.photo_status = original.video_status = "draft"
                     prompt_done += 2
@@ -817,8 +1128,8 @@ class DramaStudioApp:
             provider = ChatProvider(self.config)
             for position, index in enumerate(indexes, 1):
                 if self.cancel_event.is_set(): raise InterruptedError("Scene regeneration cancelled.")
-                scene = regenerate_scene(self.project, index, provider, False); invalidate_scene_prompts(scene); results[index] = scene
-                self._thread_progress(f"PROGRESS {position} {len(indexes)} Regenerated {scene.prompt_id}")
+                scene = regenerate_scene(self.project, index, provider, False, self._active_rule_text()); invalidate_scene_prompts(scene); results[index] = scene
+                self.root.after(0, self.scene_task_var.set, self.t("scene_regeneration_progress", done=position, total=len(indexes)))
             self.root.after(0, self._regenerate_many_done, results, None)
         except Exception as exc: self.root.after(0, self._regenerate_many_done, results, exc)
 
@@ -831,7 +1142,7 @@ class DramaStudioApp:
 
     def _regenerate_worker(self, index: int, prompts_only: bool):
         try:
-            scene = regenerate_scene(self.project, index, ChatProvider(self.config), prompts_only)
+            scene = regenerate_scene(self.project, index, ChatProvider(self.config), prompts_only, self._active_rule_text())
             self.root.after(0, self._regeneration_done, index, scene, prompts_only, None)
         except Exception as exc:
             self.root.after(0, self._regeneration_done, index, None, prompts_only, exc)
@@ -880,14 +1191,18 @@ class DramaStudioApp:
         self.checked_scene_ids.intersection_update(valid_ids)
         for i, s in enumerate(self.project.scenes):
             mark = "☑" if s.prompt_id in self.checked_scene_ids else "☐"
-            self.scene_tree.insert("", "end", iid=str(i), values=(mark, s.prompt_id, s.location))
+            quality = self.t("quality_" + s.quality_status) if s.quality_status in ("pass", "warning", "needs_attention", "unchecked") else s.quality_status
+            self.scene_tree.insert("", "end", iid=str(i), values=(mark, s.prompt_id, quality, s.location))
         self.scene_count_var.set(self.t("scenes_count", count=len(self.project.scenes)))
         self.prompt_tree.delete(*self.prompt_tree.get_children())
+        valid_prompt_ids = {f"{scene.prompt_id}:{kind}" for scene in self.project.scenes for kind in ("photo", "video")}
+        self.checked_prompt_ids.intersection_update(valid_prompt_ids)
         approved_prompts = 0
         for i, scene in enumerate(self.project.scenes):
             for kind, value, status in (("photo", scene.photo_prompt, scene.photo_status), ("video", scene.video_prompt, scene.video_status)):
                 iid = f"{i}:{kind}"; preview = value.replace("\n", " ")[:80] if value else self.t("regeneration_required")
-                self.prompt_tree.insert("", "end", iid=iid, values=(scene.prompt_id, self.t(kind), status.title(), preview), tags=(status,))
+                key = f"{scene.prompt_id}:{kind}"; mark = "☑" if key in self.checked_prompt_ids else "☐"
+                self.prompt_tree.insert("", "end", iid=iid, values=(mark, scene.prompt_id, self.t(kind), status.title(), preview), tags=(status,))
                 approved_prompts += status == "approved"
         self.prompt_count_var.set(self.t("prompts_approved", approved=approved_prompts, total=len(self.project.scenes) * 2))
         self.refresh_progress_display()
@@ -959,6 +1274,8 @@ class DramaStudioApp:
 
     def _show_scene(self, index: int):
         self.selected_scene = index; scene = self.project.scenes[index]
+        notes = "; ".join(scene.quality_notes)
+        self.scene_quality_var.set(f"{self.t('quality')}: {self.t('quality_' + scene.quality_status) if scene.quality_status in ('pass','warning','needs_attention','unchecked') else scene.quality_status}" + (f" · {notes}" if notes else ""))
         data = scene.to_dict(); data["characters"] = ", ".join(scene.characters)
         data["subtitles"] = "\n".join(f"{item.start_seconds:g}-{item.end_seconds:g} | {item.speaker} | {item.text}" for item in scene.subtitles)
         for key, widget in self.fields.items(): self._set_widget(widget, str(data.get(key, "")))
@@ -995,14 +1312,33 @@ class DramaStudioApp:
         return True
 
     def select_all_prompts(self):
-        children = self.prompt_tree.get_children()
-        if children: self.prompt_tree.selection_set(children); self.prompt_tree.focus(children[0])
+        self.checked_prompt_ids = {f"{scene.prompt_id}:{kind}" for scene in self.project.scenes for kind in ("photo", "video")}
+        self.refresh_all()
 
     def clear_prompt_selection(self):
-        self.prompt_tree.selection_remove(self.prompt_tree.get_children())
+        self.checked_prompt_ids.clear(); self.refresh_all()
+
+    def toggle_prompt_check(self, event):
+        if self.prompt_tree.identify_region(event.x, event.y) != "cell" or self.prompt_tree.identify_column(event.x) != "#1": return
+        iid = self.prompt_tree.identify_row(event.y)
+        if not iid: return "break"
+        index_text, kind = iid.split(":", 1); key = f"{self.project.scenes[int(index_text)].prompt_id}:{kind}"
+        if key in self.checked_prompt_ids: self.checked_prompt_ids.remove(key)
+        else: self.checked_prompt_ids.add(key)
+        values = list(self.prompt_tree.item(iid, "values")); values[0] = "☑" if key in self.checked_prompt_ids else "☐"
+        self.prompt_tree.item(iid, values=values)
+        return "break"
+
+    def _prompt_action_iids(self):
+        checked = []
+        for iid in self.prompt_tree.get_children():
+            index_text, kind = iid.split(":", 1)
+            key = f"{self.project.scenes[int(index_text)].prompt_id}:{kind}"
+            if key in self.checked_prompt_ids: checked.append(iid)
+        return checked
 
     def apply_prompt_bulk_action(self):
-        if not self.prompt_tree.selection():
+        if not self._prompt_action_iids():
             messagebox.showinfo(self.t("nothing_selected"), self.t("select_prompt_action_body")); return
         action = self.prompt_action_var.get()
         if action == self.t("approve_selected"): self.set_prompt_status("approved")
@@ -1011,7 +1347,7 @@ class DramaStudioApp:
         else: messagebox.showinfo(self.t("choose_action"), self.t("choose_action_body"))
 
     def delete_selected_prompts(self):
-        selected = self.prompt_tree.selection()
+        selected = self._prompt_action_iids()
         if not selected:
             messagebox.showinfo(self.t("nothing_selected"), self.t("select_prompt_action_body")); return
         if not messagebox.askyesno(self.t("delete_selected"), self.t("delete_prompts_confirm", count=len(selected))): return
@@ -1041,7 +1377,7 @@ class DramaStudioApp:
         save_project(self.project_root, self.project); self.refresh_all(); self.prompt_tree.selection_set(selected[0]); self.show_prompt()
 
     def set_prompt_status(self, status):
-        selected = self.prompt_tree.selection()
+        selected = self._prompt_action_iids()
         if not selected: return
         skipped = 0
         for iid in selected:
@@ -1055,7 +1391,7 @@ class DramaStudioApp:
 
     def start_prompt_generation(self):
         if self.busy or not self.project_root: return
-        selected = self.prompt_tree.selection()
+        selected = self._prompt_action_iids()
         if not selected:
             messagebox.showinfo(self.t("nothing_selected"), self.t("select_prompt_action_body")); return
         jobs = [(int(iid.split(":", 1)[0]), iid.split(":", 1)[1]) for iid in selected]
@@ -1073,11 +1409,12 @@ class DramaStudioApp:
             for position, (index, kind) in enumerate(jobs, 1):
                 if self.cancel_event.is_set(): raise InterruptedError("Prompt generation cancelled.")
                 field = "photo_prompt" if kind == "photo" else "video_prompt"
-                value = regenerate_field(self.project, index, field, provider)
+                value = regenerate_field(self.project, index, field, provider, self._active_rule_text())
+                probe = Scene.from_dict(self.project.scenes[index].to_dict()); setattr(probe, field, value)
+                issues = inspect_prompt(probe, kind)
+                if issues: value = regenerate_field(self.project, index, field, provider, self._active_rule_text(), "；".join(issue.message for issue in issues))
                 results.append((index, kind, value))
-                percent = position / len(jobs) * 100
-                self.root.after(0, self._update_progress_ui, "prompt", percent, position, len(jobs))
-                self.root.after(0, self.status_var.set, f"{self.project.scenes[index].prompt_id} · {position}/{len(jobs)}")
+                self.root.after(0, self.prompt_task_var.set, self.t("prompt_regeneration_progress", done=position, total=len(jobs)))
             self.root.after(0, self._prompt_done, results, None)
         except Exception as exc: self.root.after(0, self._prompt_done, results, exc)
 
@@ -1089,9 +1426,10 @@ class DramaStudioApp:
             else: scene.video_prompt, scene.video_status = value, "draft"
         if results: save_project(self.project_root, self.project)
         self.refresh_all(); self._show_page("prompts")
-        if error: messagebox.showerror(self.t("processing_failed"), str(error)); return
+        if error: self.prompt_task_var.set(""); messagebox.showerror(self.t("processing_failed"), str(error)); return
         self.progress["value"] = 100
         self.status_var.set(self.t("prompts_ready", count=len(results)))
+        self.prompt_task_var.set("")
         messagebox.showinfo(self.t("prompt_review_required"), self.t("prompt_review_body", count=len(results)))
 
     def update_photo_count(self, _event=None):

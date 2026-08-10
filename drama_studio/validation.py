@@ -46,7 +46,7 @@ def normalize_project(data: dict[str, Any]) -> ProjectData:
         while scene.prompt_id in used_scene_ids:
             scene.prompt_id += "_X"
         used_scene_ids.add(scene.prompt_id)
-        scene.duration_seconds = max(2, min(15, _positive_int(scene.duration_seconds, 6)))
+        scene.duration_seconds = max(2, min(10, _positive_int(scene.duration_seconds, 6)))
         scene.characters = [_id(value) for value in scene.characters if _id(value)]
         scene.status = scene.status if scene.status in ("draft", "reviewed", "approved") else "draft"
         scene.photo_status = scene.photo_status if scene.photo_status in ("missing", "draft", "reviewed", "approved") else "missing"

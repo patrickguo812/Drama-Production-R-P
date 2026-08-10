@@ -6,11 +6,12 @@ from collections.abc import Callable
 from .docx_reader import ExtractedNovel, chunk_novel
 from .models import ProjectData, Scene
 from .providers import ChatProvider, parse_json_response
+from .quality import inspect_and_repair_batch, renumber_scenes
 from .validation import normalize_project
 
 Progress = Callable[[str], None]
 
-SYSTEM = """你是专业AI竖屏短剧编剧和生成式影像提示词设计师。把小说忠实压缩成节奏紧凑、可逐镜头生成的短剧。普通用户不需要提供创意指令。输出必须是有效JSON，不能使用Markdown。每个scene是一个4-10秒且单独可生成的视频镜头；复杂动作必须拆镜。字幕适合短视频。人物ID使用简短大写拉丁字母。照片提示词用精确自然中文，目标约100个汉字，轻微超出可接受；优先写可见信息：主体身份特征、服装、动作表情、地点时间、构图镜头、光线风格和关键排除项。视频提示词明确时间内动作、表情、镜头和环境运动，并保持身份与场景连续。"""
+SYSTEM = """你是专业AI竖屏短剧编剧和生成式影像提示词设计师。把小说忠实压缩成节奏紧凑、可逐镜头生成的短剧。普通用户不需要提供创意指令。输出必须是有效JSON，不能使用Markdown。每个scene必须是一台真实摄影机可完成的连续镜头：允许推拉摇移、跟拍、环绕、焦点转移和连续动作，但不能隐藏切镜或摄影机瞬移。时长优先3-6秒，7-8秒可接受，超过8至10秒严格判断，绝不能超过10秒；复杂机位或独立视觉事件必须拆镜。字幕适合短视频。人物ID使用简短大写拉丁字母。照片提示词用精确自然中文，目标约100个汉字，轻微超出可接受；优先写可见信息。视频提示词明确时间内动作、表情、连续运镜和环境运动，并保持身份与场景连续。"""
 
 SCHEMA = {
     "project_summary": {"title": "", "main_theme": "", "secondary_themes": [], "genre": "", "tone": "", "visual_style": "", "time_period": "", "adaptation_direction": ""},
@@ -25,7 +26,7 @@ PLAN_SCHEMA = {
 }
 
 
-def process_novel(novel: ExtractedNovel, provider: ChatProvider, progress: Progress = lambda _: None, cancelled: Callable[[], bool] = lambda: False) -> ProjectData:
+def process_novel(novel: ExtractedNovel, provider: ChatProvider, progress: Progress = lambda _: None, cancelled: Callable[[], bool] = lambda: False, rule_text: str = "") -> ProjectData:
     if provider.config.provider == "Demo":
         progress("PROGRESS 100 100 Creating demo scene plan")
         project = demo_project(novel.title)
@@ -58,6 +59,9 @@ def process_novel(novel: ExtractedNovel, provider: ChatProvider, progress: Progr
 3. episodes覆盖全部主线，source_sections引用片段编号，target_scene_count务实控制节奏。
 4. 这只是内存中的生成计划，不写入项目文件。
 
+当前有效制作规则：
+{rule_text or '使用系统默认规则'}
+
 片段分析：
 {json.dumps(summaries, ensure_ascii=False)}"""
     plan = parse_json_response(provider.complete(SYSTEM, plan_prompt, 12000))
@@ -80,17 +84,22 @@ def process_novel(novel: ExtractedNovel, provider: ChatProvider, progress: Progr
 本集原文分析：{json.dumps(source_material, ensure_ascii=False)}
 上一集最后两镜：{json.dumps(prior_tail, ensure_ascii=False)}
 
-要求：scene的episode全部为{episode_number}，scene从1连续编号，prompt_id格式E{episode_number:03d}_S001；每镜4-10秒且只有一个主要可见动作；剧情、地点、角色、动作、字幕、时长、镜头和连续性字段齐全；photo_prompt和video_prompt必须留空，提示词将在人工批准分镜后另行生成；结尾实现计划中的ending_hook。"""
+要求：scene的episode全部为{episode_number}，scene从1连续编号，prompt_id格式E{episode_number:03d}_S001；每镜是一台摄影机能连续完成的镜头，优先3-6秒，7-8秒可接受，8-10秒必须有合理的连续动作，绝不超过10秒；允许跟拍开门进入相邻空间和同一目的的连续小动作，不要因“随后、接着、然后”本身拆镜；明确切至、摄影机无法连续到达的新机位、外景大景直接变车内面部特写、独立屏幕特写与反应镜头必须拆分；字段齐全；photo_prompt和video_prompt必须留空；结尾实现ending_hook。
+当前有效规则：
+{rule_text or '使用系统默认规则'}"""
         batch = parse_json_response(provider.complete(SYSTEM, scene_prompt, 24000))
         scenes = batch.get("scenes", [])
         if not isinstance(scenes, list) or not scenes:
             raise ValueError(f"The provider did not create scenes for episode {episode_number}.")
-        for scene_position, scene in enumerate(scenes, 1):
+        candidate_scenes = [Scene.from_dict(scene) for scene in scenes]
+        candidate_scenes, _report = inspect_and_repair_batch(candidate_scenes, provider, plan.get("project_summary", {}), plan.get("characters", []), rule_text, progress)
+        for scene_position, candidate in enumerate(candidate_scenes, 1):
+            scene = candidate.to_dict()
             scene["episode"] = episode_number
             scene["scene"] = scene_position
             scene["prompt_id"] = f"E{episode_number:03d}_S{scene_position:03d}"
-        all_scenes.extend(scenes)
-        prior_tail = scenes[-2:]
+            all_scenes.append(scene)
+        prior_tail = all_scenes[-2:]
     data = {"project_summary": plan.get("project_summary", {}), "characters": plan.get("characters", []), "scenes": all_scenes}
     try:
         project = normalize_project(data)
@@ -132,7 +141,7 @@ def generate_scene_prompts(project: ProjectData, scene_indexes: list[int], provi
     return results
 
 
-def regenerate_scene(project: ProjectData, scene_index: int, provider: ChatProvider, prompts_only: bool = False) -> Scene:
+def regenerate_scene(project: ProjectData, scene_index: int, provider: ChatProvider, prompts_only: bool = False, rule_text: str = "") -> Scene:
     original = project.scenes[scene_index]
     if provider.config.provider == "Demo":
         scene = Scene.from_dict(original.to_dict())
@@ -157,7 +166,8 @@ def regenerate_scene(project: ProjectData, scene_index: int, provider: ChatProvi
 相关角色：{json.dumps(context_characters, ensure_ascii=False)}
 前一镜：{json.dumps(project.scenes[scene_index - 1].to_dict(), ensure_ascii=False) if scene_index else '无'}
 当前镜：{json.dumps(original.to_dict(), ensure_ascii=False)}
-后一镜：{json.dumps(project.scenes[scene_index + 1].to_dict(), ensure_ascii=False) if scene_index + 1 < len(project.scenes) else '无'}"""
+后一镜：{json.dumps(project.scenes[scene_index + 1].to_dict(), ensure_ascii=False) if scene_index + 1 < len(project.scenes) else '无'}
+当前有效规则：{rule_text or '使用系统默认规则'}"""
     data = parse_json_response(provider.complete(SYSTEM, prompt, 5000))
     if "scene" in data and isinstance(data["scene"], dict):
         data = data["scene"]
@@ -177,7 +187,7 @@ def regenerate_scene(project: ProjectData, scene_index: int, provider: ChatProvi
     return regenerated
 
 
-def regenerate_field(project: ProjectData, scene_index: int, field: str, provider: ChatProvider) -> str:
+def regenerate_field(project: ProjectData, scene_index: int, field: str, provider: ChatProvider, rule_text: str = "", feedback: str = "") -> str:
     allowed = {"plot", "action", "shot", "continuity", "photo_prompt", "video_prompt"}
     if field not in allowed:
         raise ValueError("This field cannot be regenerated individually.")
@@ -201,7 +211,9 @@ def regenerate_field(project: ProjectData, scene_index: int, field: str, provide
 规则：{rules[field]}
 项目摘要：{json.dumps(project.project_summary, ensure_ascii=False)}
 相关角色：{json.dumps(characters, ensure_ascii=False)}
-完整scene：{json.dumps(scene.to_dict(), ensure_ascii=False)}"""
+完整scene：{json.dumps(scene.to_dict(), ensure_ascii=False)}
+当前有效规则：{rule_text or '使用系统默认规则'}
+用户反馈：{feedback or '无'}"""
     data = parse_json_response(provider.complete(SYSTEM, prompt, 2000))
     value = data.get("value")
     if not isinstance(value, str) or not value.strip():

@@ -27,7 +27,26 @@ The **Scene Board** lists generatable clips without an approval stage. Select a 
 
 The separate **Prompt Board** is the only approval stage and edits or approves photo and video prompts independently. Photo prompts target dense, precise Chinese of approximately 100 characters. A slight overrun is allowed and never blocks saving.
 
+Each Prompt Board row has its own checkbox. Check any combination of photo and video rows, then approve, mark reviewed, delete, regenerate, or submit feedback for only those prompts. Clicking the rest of a row opens the editor without changing the batch checkbox.
+
 **Regenerate selected scenes** shows the current and proposed versions before replacing one scene, and supports confirmed batches. Changing any scene clears its old photo/video prompts. Regenerate those missing rows from Prompt Board, where they return to draft for manual approval.
+
+## Quality Rulebook and feedback
+
+Open **Rulebook** below Settings in the top-right header. Built-in rules cover continuous camera feasibility, hidden cuts, visual beats, duration, dialogue, continuity, still-image prompts, video prompts, and preferred wording. Rules can be enabled, disabled, searched, reviewed, and modified. User rules can apply to every project or only the open project.
+
+Use **Create new rule** to describe a proactive production preference. Use **Submit feedback** on Scene Board or Prompt Board to report a problem in selected content. The configured agent first converts your description into a formal rule proposal. Review its interpretation, applicability, and exception, then choose:
+
+- **Submit to Rulebook** to save the rule and apply the correction.
+- **Modify** to send revision instructions back to the agent and review another draft.
+- **Use once only** to correct selected content without permanently learning a rule.
+- **Cancel** to make no change.
+
+For scene feedback, select exactly one scene. If the correction requires multiple camera setups, the API returns replacement scenes. The app shows them before replacement, renumbers later scene and prompt IDs, checks the replacements, clears obsolete prompts, and generates new draft photo/video prompts.
+
+The initial generation request receives a compact compilation of active built-in, global, project, and wording rules. Returned scenes are inspected before prompt generation. The preferred duration is 3–6 seconds; 7–8 seconds is acceptable; scenes above 8 through 10 seconds require strict justification; scenes above 10 seconds must be split. Transition words such as 随后、接着、然后 are warnings rather than automatic split commands—the deciding test is whether one real camera can capture the entire scene continuously.
+
+Feedback, inspection, repair, and rule-modification progress appears temporarily inside the active board or Rulebook page. The sidebar remains reserved for the main novel-to-scenes and prompt-production progress.
 
 ## Prompt extraction contract
 
