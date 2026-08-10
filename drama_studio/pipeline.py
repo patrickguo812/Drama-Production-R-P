@@ -238,14 +238,21 @@ def regenerate_prompt_kind(project: ProjectData, scene_index: int, kind: str, pr
     if provider.config.provider == "Demo":
         return ((_demo_photo_prompt(scene, project), _demo_photo_negative(scene, project)) if kind == "photo" else (_demo_video_prompt(scene, project), _demo_video_negative(scene, project)))
     positive_field, negative_field = f"{kind}_prompt", f"{kind}_negative_prompt"
-    prompt = f"""只生成当前scene的{kind}正向和可选负向提示词。输出JSON：{{"positive_prompt":"","negative_prompt":"","negative_prompt_required":true}}。
+    prompt = f"""只生成当前一个scene的{kind}正向和可选负向提示词。不要复述scene、角色档案、规则或解释。只输出一个紧凑JSON对象：{{"positive_prompt":"","negative_prompt":"","negative_prompt_required":true}}。
 正向提示词必须准确写入角色档案中相关人物的身份锚点、固定特征和本镜服装情绪，不得只写角色ID或姓名。负向提示词仅在能减少身份漂移、错误服装道具、额外人物、肢体画质问题、隐藏切镜或环境突变时填写；不需要时返回空字符串和false。
 当前有效规则：{rule_text or '使用系统默认规则'}
 用户反馈：{feedback or '无'}
 项目摘要：{json.dumps(project.project_summary, ensure_ascii=False)}
 角色档案：{json.dumps(scene_character_context(project, scene), ensure_ascii=False)}
 scene：{json.dumps(scene.to_dict(), ensure_ascii=False)}"""
-    data = parse_json_response(provider.complete(SYSTEM, prompt, 3000))
+    try:
+        response = provider.complete(SYSTEM, prompt, 1200)
+    except RuntimeError as exc:
+        if "truncated" not in str(exc).lower() and "too long" not in str(exc).lower():
+            raise
+        retry_prompt = prompt + "\n上次输出被截断。本次正向提示词不超过180个中文字符，负向提示词不超过100个中文字符，禁止输出JSON以外的任何内容。"
+        response = provider.complete(SYSTEM, retry_prompt, 900)
+    data = parse_json_response(response)
     positive = str(data.get("positive_prompt", "")).strip(); negative = str(data.get("negative_prompt", "")).strip()
     if not positive: raise ValueError("The provider did not return a usable positive prompt.")
     return positive, negative

@@ -53,7 +53,7 @@ class ChatProvider:
                 if not content:
                     raise RuntimeError("The provider returned an empty response.")
                 if choice.get("finish_reason") == "length":
-                    raise RuntimeError("The provider stopped because the response was too long. Reduce the adaptation size or use a model with more output capacity.")
+                    raise RuntimeError("The provider response was truncated because this request produced too much output.")
                 return content
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", "replace")[:800]

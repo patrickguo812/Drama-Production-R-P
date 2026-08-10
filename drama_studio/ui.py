@@ -1414,9 +1414,10 @@ class DramaStudioApp:
 
     def _prompt_worker(self, jobs):
         results = []
-        try:
-            provider = ChatProvider(self.config)
-            for position, (index, kind) in enumerate(jobs, 1):
+        failures = []
+        provider = ChatProvider(self.config)
+        for position, (index, kind) in enumerate(jobs, 1):
+            try:
                 if self.cancel_event.is_set(): raise InterruptedError("Prompt generation cancelled.")
                 field = "photo_prompt" if kind == "photo" else "video_prompt"
                 value, negative = regenerate_prompt_kind(self.project, index, kind, provider, self._active_rule_text())
@@ -1424,11 +1425,15 @@ class DramaStudioApp:
                 issues = inspect_prompt(probe, kind, self.project)
                 if issues: value, negative = regenerate_prompt_kind(self.project, index, kind, provider, self._active_rule_text(), "；".join(issue.message for issue in issues))
                 results.append((index, kind, value, negative))
-                self.root.after(0, self.prompt_task_var.set, self.t("prompt_regeneration_progress", done=position, total=len(jobs)))
-            self.root.after(0, self._prompt_done, results, None)
-        except Exception as exc: self.root.after(0, self._prompt_done, results, exc)
+            except InterruptedError as exc:
+                failures.append((index, kind, str(exc)))
+                break
+            except Exception as exc:
+                failures.append((index, kind, str(exc)))
+            self.root.after(0, self.prompt_task_var.set, self.t("prompt_regeneration_progress", done=position, total=len(jobs)))
+        self.root.after(0, self._prompt_done, results, failures)
 
-    def _prompt_done(self, results, error):
+    def _prompt_done(self, results, failures):
         self.busy = False; self.cancel_btn.configure(state="disabled")
         for index, kind, value, negative in results:
             scene = self.project.scenes[index]
@@ -1436,7 +1441,11 @@ class DramaStudioApp:
             else: scene.video_prompt, scene.video_negative_prompt, scene.video_status = value, negative, "draft"
         if results: save_project(self.project_root, self.project)
         self.refresh_all(); self._show_page("prompts")
-        if error: self.prompt_task_var.set(""); messagebox.showerror(self.t("processing_failed"), str(error)); return
+        if failures:
+            self.prompt_task_var.set("")
+            details = "\n".join(f"{self.project.scenes[index].prompt_id} {kind}: {reason}" for index, kind, reason in failures[:5])
+            messagebox.showwarning(self.t("prompts_incomplete"), self.t("prompts_incomplete_body", generated=len(results), total=len(results) + len(failures), failed=len(failures)) + "\n\n" + details)
+            return
         self.progress["value"] = 100
         self.status_var.set(self.t("prompts_ready", count=len(results)))
         self.prompt_task_var.set("")
