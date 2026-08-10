@@ -38,7 +38,8 @@ The image/video folders are prepared for the later generation stage. This MVP st
 - Plain-language theme/style and recurring-character editors
 - Long-novel chunk analysis followed by episode-batched scene generation
 - Editable scene ordering, duration, location, action, subtitle timing, camera and continuity
-- Project Manager with reusable projects and automatic folder creation
+- Searchable Project Manager with open, rename, duplicate, Show Folder, and automatic folder creation
+- Recoverable project Trash with restore controls and guarded automatic cleanup after 10 days
 - Automatic scene-to-photo/video-prompt processing without a scene approval pause
 - Editable Scene Board with selected-scene regeneration and a separate Prompt Board approval stage
 - Draft/reviewed/approved status per prompt

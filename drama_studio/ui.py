@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import copy
 import json
+import math
+import os
 import shutil
+import subprocess
+import sys
 import threading
 import tkinter as tk
+from datetime import datetime, timezone
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
@@ -13,7 +18,9 @@ from .docx_reader import ExtractedNovel, extract_docx
 from .i18n import tr
 from .models import ProjectData, Scene, Subtitle
 from .pipeline import generate_scene_prompts, process_novel, regenerate_field, regenerate_scene
-from .project_library import create_project, invalidate_scene_prompts, scan_projects
+from .project_library import (create_project, duplicate_project, invalidate_scene_prompts,
+    move_project_to_trash, permanently_delete_trash_item, purge_expired_trash,
+    rename_project, restore_project, scan_projects, scan_trash)
 from .providers import DEFAULTS, ChatProvider
 from .settings import (load_project_library, load_settings, load_ui_language,
                        save_project_library, save_settings, save_ui_language)
@@ -138,6 +145,9 @@ class DramaStudioApp:
         self.config = load_settings()
         self.config.api_key = load_api_key(self.config.provider)
         self.project_library = load_project_library()
+        if self.project_library:
+            try: purge_expired_trash(self.project_library)
+            except OSError: pass
         self.project_root: Path | None = None
         self.novel: ExtractedNovel | None = None
         self.project = ProjectData()
@@ -349,16 +359,37 @@ class DramaStudioApp:
         CurveButton(top, text=self.t("choose_library"), command=self.choose_folder, variant="secondary", width=150).pack(side="right", padx=6)
         self.library_var = tk.StringVar(value=str(self.project_library) if self.project_library else self.t("no_library"))
         ttk.Label(self.projects_tab, textvariable=self.library_var, style="Status.TLabel").pack(anchor="w", pady=(0, 10))
+        search_row = tk.Frame(self.projects_tab, bg=self.colors["bg"]); search_row.pack(fill="x", pady=(0, 10))
+        ttk.Label(search_row, text=self.t("search_projects"), style="Status.TLabel").pack(side="left", padx=(0, 8))
+        self.project_search_var = tk.StringVar()
+        search = ttk.Entry(search_row, textvariable=self.project_search_var); search.pack(side="left", fill="x", expand=True)
+        self.project_search_var.trace_add("write", lambda *_args: self.refresh_projects(purge=False))
         card = BezierPanel(self.projects_tab, fill=self.colors["surface"], radius=22); card.pack(fill="both", expand=True)
-        self.project_tree = ttk.Treeview(card.content, columns=("name", "scenes", "prompt_generated", "prompt_progress"), show="headings", selectmode="browse")
+        self.project_tabs = ttk.Notebook(card.content); self.project_tabs.pack(fill="both", expand=True)
+        live_tab = ttk.Frame(self.project_tabs, style="Surface.TFrame")
+        trash_tab = ttk.Frame(self.project_tabs, style="Surface.TFrame")
+        self.project_tabs.add(live_tab, text=self.t("active_projects")); self.project_tabs.add(trash_tab, text=self.t("trash"))
+        self.project_tree = ttk.Treeview(live_tab, columns=("name", "scenes", "prompt_generated", "prompt_progress"), show="headings", selectmode="browse")
         for column, label, width in (("name", self.t("project_name"), 260), ("scenes", self.t("scenes"), 90),
                                      ("prompt_generated", self.t("prompts_generated"), 150), ("prompt_progress", self.t("prompt_approval"), 180)):
             self.project_tree.heading(column, text=label); self.project_tree.column(column, width=width, anchor="w")
-        self.project_tree.pack(fill="both", expand=True)
+        self.project_tree.pack(fill="both", expand=True, pady=(8, 0))
         self.project_tree.bind("<Double-1>", lambda _event: self.open_selected_project())
-        actions = ttk.Frame(card.content, style="Surface.TFrame"); actions.pack(fill="x", pady=(10, 0))
+        actions = ttk.Frame(live_tab, style="Surface.TFrame"); actions.pack(fill="x", pady=(10, 0))
         CurveButton(actions, text=self.t("open_project"), command=self.open_selected_project, variant="primary", width=130).pack(side="left")
-        CurveButton(actions, text=self.t("refresh"), command=self.refresh_projects, variant="secondary", width=100).pack(side="left", padx=6)
+        CurveButton(actions, text=self.t("rename"), command=self.rename_selected_project, variant="secondary", width=105).pack(side="left", padx=4)
+        CurveButton(actions, text=self.t("duplicate"), command=self.duplicate_selected_project, variant="secondary", width=105).pack(side="left", padx=4)
+        CurveButton(actions, text=self.t("show_folder"), command=self.show_selected_project, variant="secondary", width=115).pack(side="left", padx=4)
+        CurveButton(actions, text=self.t("move_to_trash"), command=self.trash_selected_project, variant="danger", width=125).pack(side="left", padx=4)
+        CurveButton(actions, text=self.t("refresh"), command=self.refresh_projects, variant="ghost", width=90).pack(side="right")
+        self.trash_tree = ttk.Treeview(trash_tab, columns=("name", "deleted", "remaining"), show="headings", selectmode="browse")
+        for column, label, width in (("name", self.t("project_name"), 300), ("deleted", self.t("deleted_on"), 180), ("remaining", self.t("days_remaining"), 160)):
+            self.trash_tree.heading(column, text=label); self.trash_tree.column(column, width=width, anchor="w")
+        self.trash_tree.pack(fill="both", expand=True, pady=(8, 0))
+        trash_actions = ttk.Frame(trash_tab, style="Surface.TFrame"); trash_actions.pack(fill="x", pady=(10, 0))
+        CurveButton(trash_actions, text=self.t("restore"), command=self.restore_selected_project, variant="primary", width=120).pack(side="left")
+        CurveButton(trash_actions, text=self.t("delete_permanently"), command=self.delete_selected_forever, variant="danger", width=170).pack(side="left", padx=6)
+        ttk.Label(trash_actions, text=self.t("trash_retention"), style="Sub.TLabel").pack(side="right")
         self.refresh_projects()
 
     def choose_folder(self):
@@ -368,15 +399,96 @@ class DramaStudioApp:
         if hasattr(self, "library_var"): self.library_var.set(str(self.project_library))
         self.refresh_projects()
 
-    def refresh_projects(self):
+    def refresh_projects(self, purge=True):
         if not hasattr(self, "project_tree"): return
         self.project_tree.delete(*self.project_tree.get_children())
+        self.trash_tree.delete(*self.trash_tree.get_children())
         if not self.project_library: return
+        if purge:
+            try: purge_expired_trash(self.project_library)
+            except OSError: pass
+        query = self.project_search_var.get().strip().casefold()
         for root, project in scan_projects(self.project_library):
+            if query and query not in (project.project_name or root.name).casefold(): continue
             scenes = len(project.scenes); prompts = scenes * 2
             generated = sum(bool(s.photo_prompt.strip()) for s in project.scenes) + sum(bool(s.video_prompt.strip()) for s in project.scenes)
             approved_prompts = sum(s.photo_status == "approved" for s in project.scenes) + sum(s.video_status == "approved" for s in project.scenes)
             self.project_tree.insert("", "end", iid=str(root), values=(project.project_name or root.name, scenes, f"{generated}/{prompts}", f"{approved_prompts}/{prompts}"))
+        now = datetime.now(timezone.utc)
+        for root, metadata, project in scan_trash(self.project_library):
+            name = project.project_name or metadata.get("project_name") or root.name
+            if query and query not in name.casefold(): continue
+            deleted = datetime.fromisoformat(metadata["deleted_at"])
+            if deleted.tzinfo is None: deleted = deleted.replace(tzinfo=timezone.utc)
+            remaining = max(0, math.ceil(10 - (now - deleted.astimezone(timezone.utc)).total_seconds() / 86400))
+            self.trash_tree.insert("", "end", iid=str(root), values=(name, deleted.astimezone().strftime("%Y-%m-%d %H:%M"), self.t("days_count", count=remaining)))
+
+    def _selected_project_root(self):
+        selected = self.project_tree.selection()
+        return Path(selected[0]) if selected else None
+
+    def rename_selected_project(self):
+        root = self._selected_project_root()
+        if not root: return
+        name = simpledialog.askstring(self.t("rename_project"), self.t("enter_new_project_name"), initialvalue=root.name, parent=self.root)
+        if not name: return
+        try: target, project = rename_project(self.project_library, root, name)
+        except Exception as exc: messagebox.showerror(self.t("rename_failed"), str(exc)); return
+        if self.project_root and self.project_root.resolve() == root.resolve():
+            self.project_root, self.project = target, project
+            self.folder_var.set(f"{project.project_name}\n{target}")
+        self.refresh_projects(); self.status_var.set(self.t("project_renamed"))
+
+    def duplicate_selected_project(self):
+        root = self._selected_project_root()
+        if not root: return
+        name = simpledialog.askstring(self.t("duplicate_project"), self.t("enter_copy_name"), initialvalue=f"{root.name} Copy", parent=self.root)
+        if not name: return
+        try: duplicate_project(self.project_library, root, name)
+        except Exception as exc: messagebox.showerror(self.t("duplicate_failed"), str(exc)); return
+        self.refresh_projects(); self.status_var.set(self.t("project_duplicated"))
+
+    def show_selected_project(self):
+        root = self._selected_project_root()
+        if not root: return
+        try:
+            if sys.platform == "darwin": subprocess.Popen(["open", str(root)])
+            elif os.name == "nt": os.startfile(str(root))
+            else: subprocess.Popen(["xdg-open", str(root)])
+        except OSError as exc: messagebox.showerror(self.t("show_folder_failed"), str(exc))
+
+    def trash_selected_project(self):
+        root = self._selected_project_root()
+        if not root: return
+        if not messagebox.askyesno(self.t("move_to_trash"), self.t("trash_confirm", name=root.name)): return
+        try: move_project_to_trash(self.project_library, root)
+        except Exception as exc: messagebox.showerror(self.t("trash_failed"), str(exc)); return
+        if self.project_root and self.project_root.resolve() == root.resolve():
+            self.project_root = None; self.novel = None; self.project = ProjectData(); self.selected_scene = None; self.checked_scene_ids.clear()
+            self.folder_var.set(self.t("no_project_open")); self.novel_var.set(self.t("no_novel")); self.refresh_all()
+        self.refresh_projects(); self.status_var.set(self.t("project_trashed"))
+
+    def restore_selected_project(self):
+        selected = self.trash_tree.selection()
+        if not selected: return
+        root = Path(selected[0])
+        try: restore_project(self.project_library, root)
+        except FileExistsError:
+            name = simpledialog.askstring(self.t("restore"), self.t("restore_name_conflict"), initialvalue=f"{root.name} Restored", parent=self.root)
+            if not name: return
+            try: restore_project(self.project_library, root, name)
+            except Exception as exc: messagebox.showerror(self.t("restore_failed"), str(exc)); return
+        except Exception as exc: messagebox.showerror(self.t("restore_failed"), str(exc)); return
+        self.refresh_projects(); self.status_var.set(self.t("project_restored"))
+
+    def delete_selected_forever(self):
+        selected = self.trash_tree.selection()
+        if not selected: return
+        root = Path(selected[0])
+        if not messagebox.askyesno(self.t("delete_permanently"), self.t("permanent_delete_confirm", path=root)): return
+        try: permanently_delete_trash_item(self.project_library, root)
+        except Exception as exc: messagebox.showerror(self.t("permanent_delete_failed"), str(exc)); return
+        self.refresh_projects(purge=False); self.status_var.set(self.t("project_deleted_forever"))
 
     def create_new_project(self):
         if not self.project_library:

@@ -13,6 +13,12 @@
 
 Long novels are read in sections. The provider creates the complete scene plan and then automatically creates both prompts for every scene. The sidebar shows separate Scenes and Prompts progress throughout the run.
 
+## Project management
+
+Project Manager keeps every project inside the selected Drama Projects parent folder. Use Search to find projects, or select one to open, rename, duplicate, reveal in Finder/Explorer, or move it to Trash. Renaming changes both the real folder name and the saved project name; duplicating copies the source, scenes, characters, prompts, and generated assets.
+
+Deleted projects move to the hidden `.DramaStudio Trash` folder inside that same parent folder. The Trash tab shows the deletion time and days remaining. A project can be restored for 10 days; if its old name is already used, the app asks for a different one. Expired items are removed when the app starts or Project Manager refreshes. **Delete permanently** shows the exact folder and asks for confirmation. Automatic cleanup ignores unmarked folders and only removes valid projects previously trashed by Drama Studio.
+
 ## Review
 
 The **Story & cast** section provides plain-language fields for the combined theme/style summary and recurring-character profiles. Projects autosave to `project.drama`, and reopening a project restores its scenes and characters.
