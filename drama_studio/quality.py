@@ -7,6 +7,7 @@ from typing import Callable
 
 from .models import ProjectData, Scene
 from .providers import ChatProvider, parse_json_response
+from .characters import scene_character_context
 
 
 CUT_TERMS = ("切至", "切回", "再切", "镜头切换", "快速切换", "画面切换", "转场", "反打", "插入特写")
@@ -45,8 +46,9 @@ def blocking_issues(scene: Scene) -> list[QualityIssue]:
     return [issue for issue in inspect_scene(scene) if issue.severity in ("repair", "split")]
 
 
-def inspect_prompt(scene: Scene, kind: str) -> list[QualityIssue]:
+def inspect_prompt(scene: Scene, kind: str, project: ProjectData | None = None) -> list[QualityIssue]:
     value = scene.photo_prompt if kind == "photo" else scene.video_prompt
+    negative = scene.photo_negative_prompt if kind == "photo" else scene.video_negative_prompt
     issues: list[QualityIssue] = []
     if not value.strip(): return [QualityIssue("empty_prompt", "repair", "Prompt is empty.")]
     if kind == "photo":
@@ -56,6 +58,16 @@ def inspect_prompt(scene: Scene, kind: str) -> list[QualityIssue]:
     else:
         if any(term in value for term in CUT_TERMS): issues.append(QualityIssue("video_cut", "repair", "Video prompt must describe one continuous take without cuts."))
         if scene.duration_seconds > 10: issues.append(QualityIssue("video_duration", "repair", "Video prompt duration cannot exceed 10 seconds."))
+    if project is not None:
+        for character in scene_character_context(project, scene):
+            anchor = character.get("identity_anchor", "")
+            tokens = [token.strip() for token in re.split(r"[，、；;,.\s]+", anchor) if len(token.strip()) >= 2]
+            required = min(2, len(tokens))
+            if required and sum(token in value for token in tokens) < required:
+                issues.append(QualityIssue("identity_anchor_missing", "repair", f"Prompt is missing visible identity anchors for {character.get('character_id')}."))
+            contradicted = [token for token in tokens if token in negative]
+            if contradicted:
+                issues.append(QualityIssue("negative_identity_conflict", "repair", f"Negative prompt excludes required identity features for {character.get('character_id')}."))
     return issues
 
 
@@ -134,11 +146,11 @@ def apply_scene_feedback(project: ProjectData, scene_index: int, feedback: str, 
         second.plot = f"{original.plot}（第二连续镜头）"; second.action = "承接上一镜完成反馈要求的第二个连续视觉部分。"; second.duration_seconds = min(6, original.duration_seconds)
         first.shot = "第一部分使用一个连续机位完成，不切镜。"; second.shot = "第二部分使用一个独立连续机位完成，不切镜。"
         for scene in (first, second):
-            scene.photo_prompt = scene.video_prompt = ""; scene.photo_status = scene.video_status = "missing"; scene.status = "draft"
+            scene.photo_prompt = scene.photo_negative_prompt = scene.video_prompt = scene.video_negative_prompt = ""; scene.photo_status = scene.video_status = "missing"; scene.status = "draft"
         return [first, second], [{"status": "split", "reasons": [feedback]}]
     surrounding = project.scenes[max(0, scene_index - 1):scene_index + 2]
     prompt = f"""根据用户反馈修复或拆分当前scene。输出JSON：{{"scenes":[完整scene对象],"report":[{{"status":"repaired|split","reasons":[""]}}]}}。
-保留剧情位置和全部重要信息。每个返回scene是一台真实摄影机可完成的连续镜头。时长优先3–6秒，任何scene不得超过10秒。photo_prompt和video_prompt留空。
+保留剧情位置和全部重要信息。每个返回scene是一台真实摄影机可完成的连续镜头。时长优先3–6秒，任何scene不得超过10秒。所有正负提示词字段留空。
 有效规则：{rules}
 项目摘要：{json.dumps(project.project_summary, ensure_ascii=False)}
 角色：{json.dumps(project.characters, ensure_ascii=False)}
@@ -150,7 +162,7 @@ def apply_scene_feedback(project: ProjectData, scene_index: int, feedback: str, 
     if not isinstance(returned, list) or not returned: raise ValueError("The API did not return replacement scenes.")
     scenes = [Scene.from_dict(item) for item in returned]
     for scene in scenes:
-        scene.episode = original.episode; scene.photo_prompt = scene.video_prompt = ""
+        scene.episode = original.episode; scene.photo_prompt = scene.photo_negative_prompt = scene.video_prompt = scene.video_negative_prompt = ""
         scene.photo_status = scene.video_status = "missing"; scene.status = "draft"
     inspected, checker_report = inspect_and_repair_batch(scenes, provider, project.project_summary, project.characters, rules)
     return inspected, [*(data.get("report", []) if isinstance(data.get("report"), list) else []), *checker_report]

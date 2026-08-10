@@ -17,7 +17,7 @@ from .credentials import load_api_key, save_api_key
 from .docx_reader import ExtractedNovel, extract_docx
 from .i18n import tr
 from .models import ProjectData, Scene, Subtitle
-from .pipeline import generate_scene_prompts, process_novel, regenerate_field, regenerate_scene
+from .pipeline import generate_scene_prompts, process_novel, regenerate_field, regenerate_prompt_kind, regenerate_scene
 from .project_library import (create_project, duplicate_project, invalidate_scene_prompts,
     move_project_to_trash, permanently_delete_trash_item, purge_expired_trash,
     rename_project, restore_project, scan_projects, scan_trash)
@@ -521,6 +521,8 @@ class DramaStudioApp:
     def _open_project(self, root: Path, project: ProjectData):
         if self.project_root: self._save_project(silent=True)
         self.project_root, self.project = root, project
+        try: save_project(root, project)  # Migrates legacy TXT outputs to the structured JSON contract.
+        except OSError: pass
         self.folder_var.set(f"{project.project_name or root.name}\n{root}")
         self.novel = None
         if project.source_document:
@@ -584,7 +586,7 @@ class DramaStudioApp:
             ("build", self.t("build")), ("distinctive_features", self.t("distinctive_features")), ("default_costume", self.t("default_costume")),
             ("personality", self.t("personality")), ("posture", self.t("posture")), ("walking", self.t("walking")),
             ("gestures", self.t("gestures")), ("eye_behavior", self.t("eye_behavior")), ("emotional_motion", self.t("emotional_motion")),
-            ("speech_behavior", self.t("speech_behavior")), ("reference_prompt", self.t("reference_prompt")),
+            ("speech_behavior", self.t("speech_behavior")),
         ]
         self.character_fields = {}
         for row, (key, label) in enumerate(char_specs):
@@ -637,7 +639,7 @@ class DramaStudioApp:
         groups = [
             (story_form, [("prompt_id", self.t("prompt_id"), 1), ("episode", self.t("episode"), 1), ("scene", self.t("scene"), 1), ("plot", self.t("what_happens"), 4), ("location", self.t("location"), 1), ("time_of_day", self.t("time_day"), 1), ("characters", self.t("characters"), 1), ("character_state", self.t("appearance_state"), 3), ("action", self.t("visible_action"), 4), ("duration_seconds", self.t("duration"), 1)]),
             (craft_form, [("subtitles", self.t("subtitles"), 7), ("shot", self.t("camera_shot"), 4), ("continuity", self.t("continuity"), 5)]),
-            (generation_form, [("photo_prompt", self.t("photo_prompt"), 7), ("video_prompt", self.t("video_prompt"), 9)]),
+            (generation_form, [("photo_prompt", self.t("photo_prompt"), 7), ("photo_negative_prompt", self.t("photo_negative_prompt"), 4), ("video_prompt", self.t("video_prompt"), 9), ("video_negative_prompt", self.t("video_negative_prompt"), 4)]),
         ]
         for form, specs in groups:
             row = 0
@@ -687,8 +689,10 @@ class DramaStudioApp:
         self.prompt_tree.pack(fill="both", expand=True); self.prompt_tree.bind("<<TreeviewSelect>>", self.show_prompt)
         self.prompt_tree.bind("<Button-1>", self.toggle_prompt_check, add="+")
         ttk.Label(right_panel.content, text=self.t("prompt_inspector"), style="Section.TLabel").pack(anchor="w", pady=(0, 8))
-        prompt_panel, self.prompt_editor = self._curved_text(right_panel.content, 18, width=60); prompt_panel.pack(fill="both", expand=True)
+        prompt_panel, self.prompt_editor = self._curved_text(right_panel.content, 3, width=60); prompt_panel.pack(fill="both", expand=True)
         self.prompt_char_var = tk.StringVar(value=""); ttk.Label(right_panel.content, textvariable=self.prompt_char_var, style="Sub.TLabel").pack(anchor="e", pady=4)
+        ttk.Label(right_panel.content, text=self.t("negative_prompt_optional"), style="Section.TLabel").pack(anchor="w", pady=(2, 4))
+        negative_panel, self.prompt_negative_editor = self._curved_text(right_panel.content, 2, width=60); negative_panel.pack(fill="x")
         actions = ttk.Frame(right_panel.content); actions.pack(fill="x", pady=(6, 0))
         CurveButton(actions, text=self.t("save_prompt"), command=self.save_prompt_edit, variant="secondary", width=115).pack(side="right")
 
@@ -937,6 +941,7 @@ class DramaStudioApp:
                 generated = regenerate_scene(self.project, index, provider, True, rules)
                 scene = self.project.scenes[index]
                 scene.photo_prompt, scene.video_prompt = generated.photo_prompt, generated.video_prompt
+                scene.photo_negative_prompt, scene.video_negative_prompt = generated.photo_negative_prompt, generated.video_negative_prompt
                 scene.photo_status = scene.video_status = "draft"
                 save_project(self.project_root, self.project)
                 self.root.after(0, self.scene_task_var.set, self.t("replacement_prompt_progress", done=offset + 1, total=count))
@@ -954,21 +959,21 @@ class DramaStudioApp:
             provider = ChatProvider(self.config); rules = self._active_rule_text(); jobs = pending["jobs"]
             for position, (index, kind) in enumerate(jobs, 1):
                 field = "photo_prompt" if kind == "photo" else "video_prompt"
-                value = regenerate_field(self.project, index, field, provider, rules, pending["feedback"])
+                value, negative = regenerate_prompt_kind(self.project, index, kind, provider, rules, pending["feedback"])
                 probe = Scene.from_dict(self.project.scenes[index].to_dict()); setattr(probe, field, value)
-                issues = inspect_prompt(probe, kind)
-                if issues: value = regenerate_field(self.project, index, field, provider, rules, "；".join(issue.message for issue in issues))
-                results.append((index, kind, value))
+                issues = inspect_prompt(probe, kind, self.project)
+                if issues: value, negative = regenerate_prompt_kind(self.project, index, kind, provider, rules, "；".join(issue.message for issue in issues))
+                results.append((index, kind, value, negative))
                 self.root.after(0, self.prompt_task_var.set, self.t("feedback_prompt_progress", done=position, total=len(jobs)))
             self.root.after(0, self._prompt_feedback_done, results, None)
         except Exception as exc: self.root.after(0, self._prompt_feedback_done, results, exc)
 
     def _prompt_feedback_done(self, results, error):
         self.busy = False
-        for index, kind, value in results:
+        for index, kind, value, negative in results:
             scene = self.project.scenes[index]
-            if kind == "photo": scene.photo_prompt, scene.photo_status = value, "draft"
-            else: scene.video_prompt, scene.video_status = value, "draft"
+            if kind == "photo": scene.photo_prompt, scene.photo_negative_prompt, scene.photo_status = value, negative, "draft"
+            else: scene.video_prompt, scene.video_negative_prompt, scene.video_status = value, negative, "draft"
         if results: save_project(self.project_root, self.project)
         self.refresh_all(); self._show_page("prompts")
         if error: self.prompt_task_var.set(""); messagebox.showerror(self.t("feedback_failed"), str(error)); return
@@ -1041,18 +1046,20 @@ class DramaStudioApp:
                         failed.append(original.prompt_id); continue
                     generated = regenerate_scene(project, index, provider, prompts_only=True, rule_text=self._active_rule_text())
                     for kind in ("photo", "video"):
-                        issues = inspect_prompt(generated, kind)
+                        issues = inspect_prompt(generated, kind, project)
                         if issues:
                             field = "photo_prompt" if kind == "photo" else "video_prompt"
                             correction = "；".join(issue.message for issue in issues)
                             value = regenerate_field(project, index, field, provider, self._active_rule_text(), correction)
                             setattr(generated, field, value)
                     original.photo_prompt, original.video_prompt = generated.photo_prompt, generated.video_prompt
+                    original.photo_negative_prompt, original.video_negative_prompt = generated.photo_negative_prompt, generated.video_negative_prompt
                     original.photo_status = original.video_status = "draft"
                     prompt_done += 2
                 except Exception:
                     failed.append(original.prompt_id)
                     original.photo_prompt = original.video_prompt = ""
+                    original.photo_negative_prompt = original.video_negative_prompt = ""
                     original.photo_status = original.video_status = "missing"
                 percent = prompt_done / max(1, prompt_total) * 100
                 project.processing.update(prompt_percent=percent, prompt_done=prompt_done, prompt_total=prompt_total)
@@ -1232,7 +1239,7 @@ class DramaStudioApp:
         for key in movement_keys: movement[key] = values[key]
         self.project.characters[selected[0]] = {
             **old,
-            **{key: values[key] for key in ("character_id", "name", "importance", "role", "default_costume", "personality", "reference_prompt")},
+            **{key: values[key] for key in ("character_id", "name", "importance", "role", "default_costume", "personality")},
             "identity": identity, "movement_style": movement,
         }
         self.save(); self.refresh_all()
@@ -1353,8 +1360,8 @@ class DramaStudioApp:
         if not messagebox.askyesno(self.t("delete_selected"), self.t("delete_prompts_confirm", count=len(selected))): return
         for iid in selected:
             index_text, kind = iid.split(":", 1); scene = self.project.scenes[int(index_text)]
-            if kind == "photo": scene.photo_prompt, scene.photo_status = "", "missing"
-            else: scene.video_prompt, scene.video_status = "", "missing"
+            if kind == "photo": scene.photo_prompt, scene.photo_negative_prompt, scene.photo_status = "", "", "missing"
+            else: scene.video_prompt, scene.video_negative_prompt, scene.video_status = "", "", "missing"
         save_project(self.project_root, self.project); self.refresh_all()
         self.status_var.set(self.t("prompts_deleted", count=len(selected)))
 
@@ -1363,7 +1370,9 @@ class DramaStudioApp:
         if not selected: return
         index_text, kind = selected[0].split(":", 1); scene = self.project.scenes[int(index_text)]
         value = scene.photo_prompt if kind == "photo" else scene.video_prompt
+        negative = scene.photo_negative_prompt if kind == "photo" else scene.video_negative_prompt
         self._set_text(self.prompt_editor, value)
+        self._set_text(self.prompt_negative_editor, negative)
         self.prompt_char_var.set(self.t("char_count", count=len(value)))
 
     def save_prompt_edit(self):
@@ -1372,8 +1381,9 @@ class DramaStudioApp:
             messagebox.showinfo(self.t("select_one_prompt"), self.t("select_one_prompt_body")); return
         index_text, kind = selected[0].split(":", 1); scene = self.project.scenes[int(index_text)]
         value = self.prompt_editor.get("1.0", "end").strip()
-        if kind == "photo": scene.photo_prompt, scene.photo_status = value, "draft"
-        else: scene.video_prompt, scene.video_status = value, "draft"
+        negative = self.prompt_negative_editor.get("1.0", "end").strip()
+        if kind == "photo": scene.photo_prompt, scene.photo_negative_prompt, scene.photo_status = value, negative, "draft"
+        else: scene.video_prompt, scene.video_negative_prompt, scene.video_status = value, negative, "draft"
         save_project(self.project_root, self.project); self.refresh_all(); self.prompt_tree.selection_set(selected[0]); self.show_prompt()
 
     def set_prompt_status(self, status):
@@ -1409,21 +1419,21 @@ class DramaStudioApp:
             for position, (index, kind) in enumerate(jobs, 1):
                 if self.cancel_event.is_set(): raise InterruptedError("Prompt generation cancelled.")
                 field = "photo_prompt" if kind == "photo" else "video_prompt"
-                value = regenerate_field(self.project, index, field, provider, self._active_rule_text())
+                value, negative = regenerate_prompt_kind(self.project, index, kind, provider, self._active_rule_text())
                 probe = Scene.from_dict(self.project.scenes[index].to_dict()); setattr(probe, field, value)
-                issues = inspect_prompt(probe, kind)
-                if issues: value = regenerate_field(self.project, index, field, provider, self._active_rule_text(), "；".join(issue.message for issue in issues))
-                results.append((index, kind, value))
+                issues = inspect_prompt(probe, kind, self.project)
+                if issues: value, negative = regenerate_prompt_kind(self.project, index, kind, provider, self._active_rule_text(), "；".join(issue.message for issue in issues))
+                results.append((index, kind, value, negative))
                 self.root.after(0, self.prompt_task_var.set, self.t("prompt_regeneration_progress", done=position, total=len(jobs)))
             self.root.after(0, self._prompt_done, results, None)
         except Exception as exc: self.root.after(0, self._prompt_done, results, exc)
 
     def _prompt_done(self, results, error):
         self.busy = False; self.cancel_btn.configure(state="disabled")
-        for index, kind, value in results:
+        for index, kind, value, negative in results:
             scene = self.project.scenes[index]
-            if kind == "photo": scene.photo_prompt, scene.photo_status = value, "draft"
-            else: scene.video_prompt, scene.video_status = value, "draft"
+            if kind == "photo": scene.photo_prompt, scene.photo_negative_prompt, scene.photo_status = value, negative, "draft"
+            else: scene.video_prompt, scene.video_negative_prompt, scene.video_status = value, negative, "draft"
         if results: save_project(self.project_root, self.project)
         self.refresh_all(); self._show_page("prompts")
         if error: self.prompt_task_var.set(""); messagebox.showerror(self.t("processing_failed"), str(error)); return

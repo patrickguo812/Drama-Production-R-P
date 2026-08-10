@@ -21,17 +21,19 @@ Drama Projects/
 │   └── Original Novel.docx
 ├── Project Plan/
 │   ├── project.drama
-│   ├── Scene Plan.txt
-│   └── Characters.txt
+│   ├── Scene Plan.json
+│   └── Character Profiles/
+│       └── CHARACTER_ID.json
 └── Project Genre/
     ├── Character References/
-    ├── Photos Prompts.txt
-    ├── Videos Prompts.txt
+    │   └── CHARACTER_ID/
+    ├── Photos Prompts.json
+    ├── Videos Prompts.json
     ├── Photos/
     └── Videos/
 ```
 
-The image/video folders are prepared for the later generation stage. This MVP stops at reviewable prompts.
+The character-reference/image/video folders are prepared for the later generation stage. This version creates reference prompts but does not generate the reference images yet.
 
 ## Included workflow
 
@@ -53,6 +55,9 @@ The image/video folders are prepared for the later generation stage. This MVP st
 - Automatic prompt character counts and atomic autosaving
 - Cancellation between API calls and retry handling for temporary provider failures
 - Approved-only instructions embedded in the prompt files for later generation agents
+- Automatic per-character JSON archives with front-face and three-quarter reference prompts
+- Conditional full-body/default-costume references for important or recurring characters
+- Character-aware positive prompts and optional negative prompts stored as structured JSON
 
 ## Tests
 

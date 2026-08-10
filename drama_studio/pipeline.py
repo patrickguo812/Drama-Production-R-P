@@ -4,6 +4,7 @@ import json
 from collections.abc import Callable
 
 from .docx_reader import ExtractedNovel, chunk_novel
+from .characters import scene_character_context
 from .models import ProjectData, Scene
 from .providers import ChatProvider, parse_json_response
 from .quality import inspect_and_repair_batch, renumber_scenes
@@ -15,8 +16,8 @@ SYSTEM = """你是专业AI竖屏短剧编剧和生成式影像提示词设计师
 
 SCHEMA = {
     "project_summary": {"title": "", "main_theme": "", "secondary_themes": [], "genre": "", "tone": "", "visual_style": "", "time_period": "", "adaptation_direction": ""},
-    "characters": [{"character_id": "LIN", "name": "林", "importance": "main", "role": "", "identity": {"age": 26, "gender": "female", "face": "", "eyes": "", "hair": "", "build": "", "distinctive_features": ""}, "default_costume": "", "personality": "", "movement_style": {"posture": "", "walking": "", "gestures": "", "eye_behavior": "", "emotional_motion": "", "speech_behavior": ""}, "reference_prompt": ""}],
-    "scenes": [{"prompt_id": "E001_S001", "episode": 1, "scene": 1, "plot": "", "location": "", "time_of_day": "", "characters": ["LIN"], "character_state": "", "action": "", "subtitles": [{"speaker": "林", "text": "", "start_seconds": 0.5, "end_seconds": 3.0}], "duration_seconds": 6, "shot": "", "continuity": "", "photo_prompt": "", "video_prompt": "", "status": "draft"}]
+    "characters": [{"character_id": "LIN", "name": "林", "importance": "main", "role": "", "identity": {"age": 26, "gender": "female", "face": "", "eyes": "", "hair": "", "build": "", "distinctive_features": ""}, "default_costume": "", "personality": "", "movement_style": {"posture": "", "walking": "", "gestures": "", "eye_behavior": "", "emotional_motion": "", "speech_behavior": ""}, "identity_anchor": "", "negative_identity_prompt": "", "reference_prompts": [{"order": 1, "reference_type": "face_front", "view": "front", "positive_prompt": "", "negative_prompt": ""}, {"order": 2, "reference_type": "face_three_quarter", "view": "three_quarter", "positive_prompt": "", "negative_prompt": ""}]}],
+    "scenes": [{"prompt_id": "E001_S001", "episode": 1, "scene": 1, "plot": "", "location": "", "time_of_day": "", "characters": ["LIN"], "character_state": "", "action": "", "subtitles": [{"speaker": "林", "text": "", "start_seconds": 0.5, "end_seconds": 3.0}], "duration_seconds": 6, "shot": "", "continuity": "", "photo_prompt": "", "photo_negative_prompt": "", "video_prompt": "", "video_negative_prompt": "", "status": "draft"}]
 }
 
 PLAN_SCHEMA = {
@@ -55,7 +56,7 @@ def process_novel(novel: ExtractedNovel, provider: ChatProvider, progress: Progr
 
 要求：
 1. project_summary融合主题、类型、基调和统一视觉风格。
-2. recurring人物各有稳定可视身份、动作习惯和角色参考图提示词。
+2. 每个重要或会重复出现的人物必须有稳定可视身份和动作习惯，并生成两个独立、具体的角色参考提示词：第一个严格正面脸，第二个三分之四脸；主要、常驻或服装体型重要的人物再增加全身默认服装参考提示词。每个参考都有positive_prompt和必要的negative_prompt。
 3. episodes覆盖全部主线，source_sections引用片段编号，target_scene_count务实控制节奏。
 4. 这只是内存中的生成计划，不写入项目文件。
 
@@ -114,7 +115,9 @@ def process_novel(novel: ExtractedNovel, provider: ChatProvider, progress: Progr
     for scene in project.scenes:
         # Scene planning and prompt production are separate approval stages.
         scene.photo_prompt = ""
+        scene.photo_negative_prompt = ""
         scene.video_prompt = ""
+        scene.video_negative_prompt = ""
         scene.photo_status = "missing"
         scene.video_status = "missing"
         scene.status = "draft"
@@ -146,19 +149,22 @@ def regenerate_scene(project: ProjectData, scene_index: int, provider: ChatProvi
     if provider.config.provider == "Demo":
         scene = Scene.from_dict(original.to_dict())
         if prompts_only:
-            scene.photo_prompt = _demo_photo_prompt(scene)
-            scene.video_prompt = _demo_video_prompt(scene)
+            scene.photo_prompt = _demo_photo_prompt(scene, project)
+            scene.photo_negative_prompt = _demo_photo_negative(scene, project)
+            scene.video_prompt = _demo_video_prompt(scene, project)
+            scene.video_negative_prompt = _demo_video_negative(scene, project)
         else:
             scene.plot = scene.plot or "重新生成的演示剧情节点"
             scene.action = scene.action or "人物完成一个清晰可见的动作。"
-            scene.photo_prompt = _demo_photo_prompt(scene)
-            scene.video_prompt = _demo_video_prompt(scene)
+            scene.photo_prompt = _demo_photo_prompt(scene, project)
+            scene.photo_negative_prompt = _demo_photo_negative(scene, project)
+            scene.video_prompt = _demo_video_prompt(scene, project)
+            scene.video_negative_prompt = _demo_video_negative(scene, project)
         scene.status = "draft"
         return scene
-    character_map = {c.get("character_id"): c for c in project.characters}
-    context_characters = [character_map[cid] for cid in original.characters if cid in character_map]
+    context_characters = scene_character_context(project, original)
     if prompts_only:
-        instruction = "只重写photo_prompt和video_prompt，其他字段逐字保持原值。照片提示词为精确中文、约100汉字；视频提示词含时间动作、运镜和不变项。"
+        instruction = "只重写photo_prompt、photo_negative_prompt、video_prompt、video_negative_prompt，其他字段逐字保持原值。正向提示词必须写入相关角色档案中的可见身份锚点和本镜状态。照片提示词为精确中文、约100汉字；视频提示词含时间动作、连续运镜和不变项。negative字段仅在有助于防止身份、服装、道具、额外人物、画面质量或镜头错误时填写，否则留空。"
     else:
         instruction = "在保持prompt_id、episode、scene和主线位置不变的前提下重写这个镜头，使它是4-10秒、单一主要动作且可生成。补齐全部字段。"
     prompt = f"""{instruction} 输出JSON对象，字段与输入scene完全一致，不加外层包装。
@@ -179,7 +185,9 @@ def regenerate_scene(project: ProjectData, scene_index: int, provider: ChatProvi
     if prompts_only:
         preserved = original.to_dict()
         preserved["photo_prompt"] = regenerated.photo_prompt
+        preserved["photo_negative_prompt"] = regenerated.photo_negative_prompt
         preserved["video_prompt"] = regenerated.video_prompt
+        preserved["video_negative_prompt"] = regenerated.video_negative_prompt
         preserved["status"] = "draft"
         regenerated = Scene.from_dict(preserved)
         regenerated.photo_status = "draft"
@@ -188,20 +196,23 @@ def regenerate_scene(project: ProjectData, scene_index: int, provider: ChatProvi
 
 
 def regenerate_field(project: ProjectData, scene_index: int, field: str, provider: ChatProvider, rule_text: str = "", feedback: str = "") -> str:
-    allowed = {"plot", "action", "shot", "continuity", "photo_prompt", "video_prompt"}
+    allowed = {"plot", "action", "shot", "continuity", "photo_prompt", "photo_negative_prompt", "video_prompt", "video_negative_prompt"}
     if field not in allowed:
         raise ValueError("This field cannot be regenerated individually.")
     scene = project.scenes[scene_index]
     if provider.config.provider == "Demo":
-        if field == "photo_prompt": return _demo_photo_prompt(scene)
-        if field == "video_prompt": return _demo_video_prompt(scene)
+        if field == "photo_prompt": return _demo_photo_prompt(scene, project)
+        if field == "photo_negative_prompt": return _demo_photo_negative(scene, project)
+        if field == "video_prompt": return _demo_video_prompt(scene, project)
+        if field == "video_negative_prompt": return _demo_video_negative(scene, project)
         defaults = {"plot": "本镜推进关键剧情并留下明确悬念。", "action": "人物完成一个清晰可见的动作。", "shot": "9:16中近景，镜头稳定缓慢推近。", "continuity": "保持人物身份、服装、道具、轴线与光线连续。"}
         return defaults[field]
-    character_map = {c.get("character_id"): c for c in project.characters}
-    characters = [character_map[cid] for cid in scene.characters if cid in character_map]
+    characters = scene_character_context(project, scene)
     rules = {
         "photo_prompt": "精确中文，目标约100汉字；包含参考人物的可见身份锚点、服装动作表情、地点时间、镜头构图、光线风格和关键排除项。",
+        "photo_negative_prompt": "仅写有助于避免本镜身份漂移、错误服装道具、额外人物、肢体错误、文字水印或风格错误的负向内容；不需要时返回空字符串。",
         "video_prompt": "写清本镜时长内分段动作、表情、运镜、环境运动和必须保持不变的内容。",
+        "video_negative_prompt": "仅写有助于避免切镜、摄影机瞬移、身份漂移、动作变形、额外人物或环境突变的负向内容；不需要时返回空字符串。",
         "plot": "一句到两句说明本镜剧情功能和信息变化。",
         "action": "只写本镜时长内可见且可生成的一个主要动作。",
         "shot": "写明竖屏构图、景别、机位、镜头运动和必要镜头语言。",
@@ -216,18 +227,50 @@ def regenerate_field(project: ProjectData, scene_index: int, field: str, provide
 用户反馈：{feedback or '无'}"""
     data = parse_json_response(provider.complete(SYSTEM, prompt, 2000))
     value = data.get("value")
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str) or (not value.strip() and not field.endswith("negative_prompt")):
         raise ValueError("The provider did not return a usable field value.")
     return value.strip()
 
 
-def _demo_photo_prompt(scene: Scene) -> str:
+def regenerate_prompt_kind(project: ProjectData, scene_index: int, kind: str, provider: ChatProvider, rule_text: str = "", feedback: str = "") -> tuple[str, str]:
+    if kind not in ("photo", "video"): raise ValueError("Prompt kind must be photo or video.")
+    scene = project.scenes[scene_index]
+    if provider.config.provider == "Demo":
+        return ((_demo_photo_prompt(scene, project), _demo_photo_negative(scene, project)) if kind == "photo" else (_demo_video_prompt(scene, project), _demo_video_negative(scene, project)))
+    positive_field, negative_field = f"{kind}_prompt", f"{kind}_negative_prompt"
+    prompt = f"""只生成当前scene的{kind}正向和可选负向提示词。输出JSON：{{"positive_prompt":"","negative_prompt":"","negative_prompt_required":true}}。
+正向提示词必须准确写入角色档案中相关人物的身份锚点、固定特征和本镜服装情绪，不得只写角色ID或姓名。负向提示词仅在能减少身份漂移、错误服装道具、额外人物、肢体画质问题、隐藏切镜或环境突变时填写；不需要时返回空字符串和false。
+当前有效规则：{rule_text or '使用系统默认规则'}
+用户反馈：{feedback or '无'}
+项目摘要：{json.dumps(project.project_summary, ensure_ascii=False)}
+角色档案：{json.dumps(scene_character_context(project, scene), ensure_ascii=False)}
+scene：{json.dumps(scene.to_dict(), ensure_ascii=False)}"""
+    data = parse_json_response(provider.complete(SYSTEM, prompt, 3000))
+    positive = str(data.get("positive_prompt", "")).strip(); negative = str(data.get("negative_prompt", "")).strip()
+    if not positive: raise ValueError("The provider did not return a usable positive prompt.")
+    return positive, negative
+
+
+def _demo_photo_prompt(scene: Scene, project: ProjectData | None = None) -> str:
     people = "、".join(scene.characters) or "人物"
-    return f"9:16竖屏写实电影剧照，{scene.location or '剧情现场'}{scene.time_of_day}。{people}{scene.character_state}，{scene.action}。{scene.shot or '中近景'}，戏剧光影，构图明确，面容服装一致，无水印乱码。"
+    anchors = "；".join(item.get("identity_anchor", "") for item in scene_character_context(project, scene)) if project else ""
+    subject = f"{people}（{anchors}）" if anchors else people
+    return f"9:16竖屏写实电影剧照，{scene.location or '剧情现场'}{scene.time_of_day}。{subject}{scene.character_state}，{scene.action}。{scene.shot or '中近景'}，戏剧光影，构图明确，面容服装一致，无水印乱码。"
 
 
-def _demo_video_prompt(scene: Scene) -> str:
-    return f"{scene.duration_seconds}秒竖屏镜头。{scene.action}镜头按{scene.shot or '稳定中近景'}完成，环境保持自然微动。保持人物身份、服装、道具、空间布局与光线连续，不增加人物，不切换场景。"
+def _demo_video_prompt(scene: Scene, project: ProjectData | None = None) -> str:
+    anchors = "；".join(item.get("identity_anchor", "") for item in scene_character_context(project, scene)) if project else ""
+    return f"{scene.duration_seconds}秒竖屏镜头。人物身份锚点：{anchors or '保持既定角色身份'}。{scene.action}镜头按{scene.shot or '稳定中近景'}完成，环境保持自然微动。保持人物身份、服装、道具、空间布局与光线连续，不增加人物，不切换场景。"
+
+
+def _demo_photo_negative(scene: Scene, project: ProjectData) -> str:
+    context = scene_character_context(project, scene)
+    identity = "，".join(item.get("negative_identity_prompt", "") for item in context if item.get("negative_identity_prompt"))
+    return "，".join(part for part in (identity, "多余人物，人物融合，肢体变形，错误服装道具，文字，水印") if part)
+
+
+def _demo_video_negative(scene: Scene, project: ProjectData) -> str:
+    return "切镜，摄影机瞬移，人物身份漂移，服装突变，多余人物，动作变形，背景闪烁"
 
 
 def demo_project(title: str = "演示小说") -> ProjectData:
@@ -243,7 +286,11 @@ def demo_project(title: str = "演示小说") -> ProjectData:
             "identity": {"age": 26, "gender": "female", "face": "椭圆脸、窄下颌", "eyes": "深棕杏眼", "hair": "中分齐肩黑直发", "build": "清瘦", "distinctive_features": "左眼下小泪痣"},
             "default_costume": "灰色针织衫、黑色长裤、银色细项链", "personality": "克制、敏锐",
             "movement_style": {"posture": "肩略内收", "walking": "谨慎轻快", "gestures": "紧张时拇指摩擦食指", "eye_behavior": "先观察再对视", "emotional_motion": "震惊时身体静止，仅眼神和呼吸变化", "speech_behavior": "短句、嘴部动作克制"},
-            "reference_prompt": "26岁中国女性，椭圆脸窄下颌，深棕杏眼，左眼下泪痣，中分齐肩黑直发，清瘦，灰色针织衫，白底写实角色设定图"
+            "identity_anchor": "26岁中国女性，椭圆脸窄下颌，深棕杏眼，左眼下泪痣，中分齐肩黑直发，清瘦",
+            "reference_prompts": [
+                {"order": 1, "reference_type": "face_front", "view": "front", "positive_prompt": "26岁中国女性，椭圆脸窄下颌，深棕杏眼，左眼下泪痣，中分齐肩黑直发，严格正面中性表情，均匀棚拍光，浅灰纯色背景，写实面部参考图", "negative_prompt": "侧脸，头部倾斜，泪痣缺失，发型变化，夸张表情，文字水印"},
+                {"order": 2, "reference_type": "face_three_quarter", "view": "three_quarter", "positive_prompt": "同一26岁中国女性，椭圆脸窄下颌，深棕杏眼，左眼下泪痣，中分齐肩黑直发，左前三分之四中性表情，均匀棚拍光，浅灰纯色背景，写实面部参考图", "negative_prompt": "完全正面，完全侧面，泪痣缺失，发型变化，夸张表情，文字水印"}
+            ]
         }],
         "scenes": [{
             "prompt_id": "E001_S001", "episode": 1, "scene": 1,

@@ -23,11 +23,15 @@ Deleted projects move to the hidden `.DramaStudio Trash` folder inside that same
 
 The **Story & cast** section provides plain-language fields for the combined theme/style summary and recurring-character profiles. Projects autosave to `project.drama`, and reopening a project restores its scenes and characters.
 
+Character profile documents are created automatically from the novel. Every archived character is saved separately in `Project Plan/Character Profiles/CHARACTER_ID.json`. Each profile contains two standard reference prompts in order: front face, then three-quarter face. Main, recurring, or visually important characters additionally receive a full-body/default-costume reference prompt. These describe separate future images, not multiple views forced into one image.
+
 The **Scene Board** lists generatable clips without an approval stage. Select a scene to edit its plot, location, character IDs, costume/state, action, subtitle timing, duration, camera, and continuity. Enter each subtitle on its own line as `start-end | speaker | text`. Scenes can be added, duplicated, deleted, reordered, or regenerated.
 
 The separate **Prompt Board** is the only approval stage and edits or approves photo and video prompts independently. Photo prompts target dense, precise Chinese of approximately 100 characters. A slight overrun is allowed and never blocks saving.
 
 Each Prompt Board row has its own checkbox. Check any combination of photo and video rows, then approve, mark reviewed, delete, regenerate, or submit feedback for only those prompts. Clicking the rest of a row opens the editor without changing the batch checkbox.
+
+The Prompt Inspector shows a positive prompt and an optional negative prompt. Before generation, the app resolves scene character IDs against the profile archive and supplies visible identity anchors, fixed features, relevant reference prompts, default costume, and the current scene state to the API. The checker repairs prompts that omit important identity anchors or make a negative prompt contradict a required feature.
 
 **Regenerate selected scenes** shows the current and proposed versions before replacing one scene, and supports confirmed batches. Changing any scene clears its old photo/video prompts. Regenerate those missing rows from Prompt Board, where they return to draft for manual approval.
 
@@ -50,7 +54,7 @@ Feedback, inspection, repair, and rule-modification progress appears temporarily
 
 ## Prompt extraction contract
 
-A later image agent should locate a block by `PROMPT_ID`, then read only the text between `<<<PHOTO_PROMPT_BEGIN>>>` and `<<<PHOTO_PROMPT_END>>>`. A later video agent uses the corresponding video markers. IDs are stable links among the scene, character files, prompt, future photo, and future video.
+A later image agent opens `Photos Prompts.json`, finds one approved record by `prompt_id`, then reads its `positive_prompt`, optional `negative_prompt`, `character_ids`, and `character_profile_files`. A later video agent does the same with `Videos Prompts.json`. IDs are stable links among scenes, individual character profiles, prompts, future reference images, photos, and videos.
 
 ## Credentials and privacy
 
@@ -64,7 +68,7 @@ A later image agent should locate a block by `PROMPT_ID`, then read only the tex
 
 ## Recovery
 
-Every save uses atomic file replacement and maintains one recovery copy. Open a project through Project Manager to reload `project.drama`. `Photos Prompts.txt` and `Videos Prompts.txt` are rebuilt from approved prompt records only, so obsolete or draft prompts cannot be sent accidentally.
+Every save uses atomic file replacement and maintains one recovery copy. Open a project through Project Manager to reload `project.drama`. `Photos Prompts.json` and `Videos Prompts.json` are rebuilt from approved prompt records only, so obsolete or draft prompts cannot be sent accidentally. Opening an older project automatically creates individual character JSON files and replaces the legacy generated TXT exports; internal recovery data remains intact.
 
 ## Current boundary
 

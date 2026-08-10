@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 from .models import ProjectData
+from .characters import normalize_character_profiles
 
 
 def ensure_project_folders(root: str | Path) -> dict[str, Path]:
@@ -15,6 +16,7 @@ def ensure_project_folders(root: str | Path) -> dict[str, Path]:
         "root": base,
         "source": base / "Source",
         "plan": base / "Project Plan",
+        "character_profiles": base / "Project Plan" / "Character Profiles",
         "genre": base / "Project Genre",
         "references": base / "Project Genre" / "Character References",
         "photos": base / "Project Genre" / "Photos",
@@ -43,6 +45,7 @@ def _atomic_text(path: Path, content: str) -> None:
 
 def save_project(root: str | Path, project: ProjectData) -> None:
     paths = ensure_project_folders(root)
+    project.characters = normalize_character_profiles(project.characters)
     scene_total = len(project.scenes)
     prompt_total = scene_total * 2
     prompt_done = sum(bool(scene.photo_prompt.strip()) for scene in project.scenes) + sum(bool(scene.video_prompt.strip()) for scene in project.scenes)
@@ -59,10 +62,21 @@ def save_project(root: str | Path, project: ProjectData) -> None:
         except OSError: pass
     _atomic_text(internal, json.dumps(project.to_dict(), ensure_ascii=False, indent=2))
     _atomic_text(paths["plan"] / "Scene Plan.json", json.dumps(scene_plan, ensure_ascii=False, indent=2))
-    _atomic_text(paths["plan"] / "Scene Plan.txt", render_scene_plan(project))
-    _atomic_text(paths["plan"] / "Characters.txt", render_characters(project))
-    _atomic_text(paths["genre"] / "Photos Prompts.txt", render_photo_prompts(project))
-    _atomic_text(paths["genre"] / "Videos Prompts.txt", render_video_prompts(project))
+    active_profiles = set()
+    for character in project.characters:
+        character_id = safe_id(character.get("character_id", "")); active_profiles.add(character_id)
+        profile = {"_format": "drama-character-profile-v1", **character}
+        _atomic_text(paths["character_profiles"] / f"{character_id}.json", json.dumps(profile, ensure_ascii=False, indent=2))
+        (paths["references"] / character_id).mkdir(parents=True, exist_ok=True)
+    for candidate in paths["character_profiles"].glob("*.json"):
+        if candidate.stem in active_profiles: continue
+        try: managed = json.loads(candidate.read_text(encoding="utf-8")).get("_format") == "drama-character-profile-v1"
+        except (OSError, ValueError, TypeError): managed = False
+        if managed: candidate.unlink()
+    _atomic_text(paths["genre"] / "Photos Prompts.json", render_photo_prompts(project))
+    _atomic_text(paths["genre"] / "Videos Prompts.json", render_video_prompts(project))
+    for legacy in (paths["plan"] / "Scene Plan.txt", paths["plan"] / "Characters.txt", paths["genre"] / "Photos Prompts.txt", paths["genre"] / "Videos Prompts.txt"):
+        if legacy.exists(): legacy.unlink()
 
 
 def load_project(root: str | Path) -> ProjectData:
@@ -99,43 +113,32 @@ def safe_id(value: str) -> str:
 
 
 def render_photo_prompts(project: ProjectData) -> str:
-    blocks = [
-        "DRAMA_STUDIO_PROMPT_FORMAT: 1\n"
-        "PROMPT_KIND: PHOTO\n"
-        "GENERATION_RULE: Process one marked block at a time; generate only scenes whose STATUS is APPROVED."
-    ]
+    prompts = []
     for s in project.scenes:
         if s.photo_status != "approved" or not s.photo_prompt.strip():
             continue
-        blocks.append(
-            f"===== PHOTO_SCENE_BEGIN {s.prompt_id} =====\n"
-            f"PROMPT_ID: {s.prompt_id}\nASPECT_RATIO: 9:16\n"
-            f"CHARACTER_REFERENCES: {', '.join(s.characters) if s.characters else 'NONE'}\n"
-            f"LOCATION: {s.location}\nSTATUS: APPROVED\n\n"
-            f"<<<PHOTO_PROMPT_BEGIN>>>\n{s.photo_prompt.strip()}\n<<<PHOTO_PROMPT_END>>>\n\n"
-            f"===== PHOTO_SCENE_END {s.prompt_id} ====="
-        )
-    return "\n\n".join(blocks) + "\n"
+        prompts.append({
+            "prompt_id": s.prompt_id, "aspect_ratio": "9:16", "character_ids": s.characters,
+            "character_profile_files": [f"../Project Plan/Character Profiles/{safe_id(value)}.json" for value in s.characters],
+            "location": s.location, "positive_prompt": s.photo_prompt.strip(),
+            "negative_prompt": s.photo_negative_prompt.strip(), "negative_prompt_required": bool(s.photo_negative_prompt.strip()),
+            "status": "approved",
+        })
+    return json.dumps({"format": "drama-photo-prompts-v2", "prompt_kind": "photo", "generation_rule": "Process one prompt record at a time and generate only approved records.", "prompts": prompts}, ensure_ascii=False, indent=2) + "\n"
 
 
 def render_video_prompts(project: ProjectData) -> str:
-    blocks = [
-        "DRAMA_STUDIO_PROMPT_FORMAT: 1\n"
-        "PROMPT_KIND: VIDEO\n"
-        "GENERATION_RULE: Process one marked block at a time; generate only scenes whose STATUS is APPROVED."
-    ]
+    prompts = []
     for s in project.scenes:
         if s.video_status != "approved" or not s.video_prompt.strip():
             continue
-        blocks.append(
-            f"===== VIDEO_SCENE_BEGIN {s.prompt_id} =====\n"
-            f"PROMPT_ID: {s.prompt_id}\nDURATION_SECONDS: {s.duration_seconds}\n"
-            f"SOURCE_PHOTO: {s.prompt_id}\nSTATUS: APPROVED\n"
-            f"CHARACTER_REFERENCES: {', '.join(s.characters) if s.characters else 'NONE'}\n\n"
-            f"<<<VIDEO_PROMPT_BEGIN>>>\n{s.video_prompt.strip()}\n<<<VIDEO_PROMPT_END>>>\n\n"
-            f"===== VIDEO_SCENE_END {s.prompt_id} ====="
-        )
-    return "\n\n".join(blocks) + "\n"
+        prompts.append({
+            "prompt_id": s.prompt_id, "duration_seconds": s.duration_seconds, "source_photo_id": s.prompt_id,
+            "character_ids": s.characters, "character_profile_files": [f"../Project Plan/Character Profiles/{safe_id(value)}.json" for value in s.characters],
+            "positive_prompt": s.video_prompt.strip(), "negative_prompt": s.video_negative_prompt.strip(),
+            "negative_prompt_required": bool(s.video_negative_prompt.strip()), "status": "approved",
+        })
+    return json.dumps({"format": "drama-video-prompts-v2", "prompt_kind": "video", "generation_rule": "Process one prompt record at a time and generate only approved records.", "prompts": prompts}, ensure_ascii=False, indent=2) + "\n"
 
 
 def render_scene_plan(project: ProjectData) -> str:
@@ -162,6 +165,17 @@ def render_characters(project: ProjectData) -> str:
 
 
 def extract_marked_prompt(content: str, prompt_id: str, kind: str = "PHOTO") -> str:
+    try:
+        data = json.loads(content)
+        if isinstance(data, dict) and isinstance(data.get("prompts"), list):
+            for record in data["prompts"]:
+                if record.get("prompt_id") == prompt_id:
+                    value = record.get("positive_prompt", "")
+                    if not str(value).strip(): raise ValueError(f"Prompt {prompt_id} is empty.")
+                    return str(value).strip()
+            raise KeyError(f"Prompt record {prompt_id} was not found.")
+    except json.JSONDecodeError:
+        pass
     kind = kind.upper()
     block_start = f"===== {kind}_SCENE_BEGIN {prompt_id} ====="
     block_end = f"===== {kind}_SCENE_END {prompt_id} ====="

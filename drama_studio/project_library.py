@@ -174,7 +174,9 @@ def purge_expired_trash(library: str | Path, days: int = 10, now: datetime | Non
 
 def invalidate_scene_prompts(scene) -> None:
     scene.photo_prompt = ""
+    scene.photo_negative_prompt = ""
     scene.video_prompt = ""
+    scene.video_negative_prompt = ""
     scene.photo_status = "missing"
     scene.video_status = "missing"
     scene.status = "draft"

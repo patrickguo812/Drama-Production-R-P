@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from .models import ProjectData, Scene
+from .characters import normalize_character_profiles
 
 REQUIRED_SUMMARY = ("title", "main_theme", "genre", "tone", "visual_style", "adaptation_direction")
 
@@ -34,7 +35,7 @@ def normalize_project(data: dict[str, Any]) -> ProjectData:
         character.setdefault("name", cid)
         character.setdefault("identity", {})
         character.setdefault("movement_style", {})
-        character.setdefault("reference_prompt", "")
+    project.characters = normalize_character_profiles(project.characters)
     used_scene_ids: set[str] = set()
     for index, scene in enumerate(project.scenes, 1):
         scene.episode = _positive_int(scene.episode, 1)

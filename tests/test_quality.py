@@ -3,7 +3,7 @@ import unittest
 from drama_studio.models import ProjectData, Scene
 from drama_studio.pipeline import demo_project
 from drama_studio.providers import ChatProvider, ProviderConfig
-from drama_studio.quality import apply_scene_feedback, inspect_scene, renumber_scenes
+from drama_studio.quality import apply_scene_feedback, inspect_prompt, inspect_scene, renumber_scenes
 
 
 class QualityTests(unittest.TestCase):
@@ -35,6 +35,15 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(len(replacements), 2)
         self.assertTrue(report)
         self.assertTrue(all(not scene.photo_prompt and scene.photo_status == "missing" for scene in replacements))
+
+    def test_character_aware_prompt_checker_requires_visible_anchors(self):
+        project = demo_project(); scene = project.scenes[0]
+        scene.photo_prompt = "一名人物站在厨房里，中近景。"
+        codes = {issue.code for issue in inspect_prompt(scene, "photo", project)}
+        self.assertIn("identity_anchor_missing", codes)
+        scene.photo_prompt = "26岁中国女性，椭圆脸窄下颌，左眼下泪痣，站在厨房里。"
+        codes = {issue.code for issue in inspect_prompt(scene, "photo", project)}
+        self.assertNotIn("identity_anchor_missing", codes)
 
 
 if __name__ == "__main__": unittest.main()
