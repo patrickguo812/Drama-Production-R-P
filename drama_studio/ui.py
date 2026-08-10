@@ -1530,7 +1530,7 @@ class SettingsDialog:
         ttk.Label(frame, text=app.t("interface_language")).grid(row=0, column=0, sticky="w", pady=6)
         ttk.Combobox(frame, textvariable=self.ui_language, values=("English", "中文"), state="readonly").grid(row=0, column=1, sticky="ew", pady=6)
         ttk.Label(frame, text=app.t("provider", provider="").replace(": ", "")).grid(row=1, column=0, sticky="w", pady=6)
-        combo = ttk.Combobox(frame, textvariable=self.provider, values=("Demo", "DeepSeek", "Qwen"), state="readonly"); combo.grid(row=1, column=1, sticky="ew", pady=6); combo.bind("<<ComboboxSelected>>", self.changed)
+        combo = ttk.Combobox(frame, textvariable=self.provider, values=("Demo", "DeepSeek", "Qwen", "OpenAI"), state="readonly"); combo.grid(row=1, column=1, sticky="ew", pady=6); combo.bind("<<ComboboxSelected>>", self.changed)
         for row, (label, variable) in enumerate(((app.t("api_endpoint"), self.endpoint), (app.t("model"), self.model)), 2):
             ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", pady=6); ttk.Entry(frame, textvariable=variable).grid(row=row, column=1, sticky="ew", pady=6)
         ttk.Label(frame, text=app.t("api_key")).grid(row=4, column=0, sticky="w", pady=6); ttk.Entry(frame, textvariable=self.key, show="•").grid(row=4, column=1, sticky="ew", pady=6)

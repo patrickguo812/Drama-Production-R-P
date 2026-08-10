@@ -1,9 +1,14 @@
 import unittest
 
-from drama_studio.providers import parse_json_response
+from drama_studio.providers import DEFAULTS, parse_json_response
 
 
 class ProviderTests(unittest.TestCase):
+    def test_openai_provider_defaults(self):
+        endpoint, model = DEFAULTS["OpenAI"]
+        self.assertEqual(endpoint, "https://api.openai.com/v1/chat/completions")
+        self.assertTrue(model)
+
     def test_parse_plain_json(self):
         self.assertEqual(parse_json_response('{"status":"ok"}')["status"], "ok")
 
@@ -17,4 +22,3 @@ class ProviderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

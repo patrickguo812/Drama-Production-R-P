@@ -18,6 +18,7 @@ class ProviderConfig:
 DEFAULTS = {
     "DeepSeek": ("https://api.deepseek.com/chat/completions", "deepseek-v4-flash"),
     "Qwen": ("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", "qwen-plus"),
+    "OpenAI": ("https://api.openai.com/v1/chat/completions", "gpt-4.1-mini"),
     "Demo": ("", "demo"),
 }
 

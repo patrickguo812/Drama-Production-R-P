@@ -4,7 +4,7 @@
 
 1. Launch **Drama Studio - Text Production**.
 2. Open **API Settings**.
-3. Select **Demo** to explore safely, or select **DeepSeek** / **Qwen** and enter an API key.
+3. Select **Demo** to explore safely, or select **DeepSeek**, **Qwen**, or **OpenAI** and enter that provider's API key.
 4. For a real provider, choose **Test Connection**, then **Save**.
 5. Open **Project Manager**, choose one Drama Projects parent folder, and create a named project.
 6. The app automatically creates `Source`, `Project Plan`, and `Project Genre` inside that project.
@@ -57,6 +57,7 @@ A later image agent should locate a block by `PROMPT_ID`, then read only the tex
 - macOS keys are stored in Keychain under service `DramaStudio`.
 - Windows keys are stored as generic credentials in Windows Credential Manager.
 - `DEEPSEEK_API_KEY` or `QWEN_API_KEY` can supply a session key for development.
+- `OPENAI_API_KEY` can supply the OpenAI session key for development.
 - Keys are not written to project JSON or prompt files.
 - The app does not store raw provider responses, processing history, or hidden reasoning.
 - Novel text is sent to the selected provider only when real processing is started.

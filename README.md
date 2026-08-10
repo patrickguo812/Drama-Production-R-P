@@ -10,7 +10,7 @@ Requires Python 3.11+ with Tk support.
 python3 app.py
 ```
 
-No API key is required for **Demo mode**. For real processing, choose DeepSeek or Qwen in Settings, enter the API key, and test the connection. Keys are stored in macOS Keychain or Windows Credential Manager and are never written to project files.
+No API key is required for **Demo mode**. For real processing, choose DeepSeek, Qwen, or OpenAI in Settings, enter the provider-specific API key, and test the connection. Keys are stored in macOS Keychain or Windows Credential Manager and are never written to project files.
 
 ## Project output
 
@@ -76,5 +76,6 @@ The local Mac build is ad-hoc/unsigned. For distribution to other Macs, sign and
 
 - DeepSeek default endpoint: `https://api.deepseek.com/chat/completions` (current default model: `deepseek-v4-flash`)
 - Qwen default endpoint: `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`
+- OpenAI default endpoint: `https://api.openai.com/v1/chat/completions` (editable default model: `gpt-4.1-mini`)
 
-Both use an OpenAI-compatible chat-completions request. Endpoints and model names remain editable because provider offerings change.
+All real providers use an OpenAI-compatible chat-completions request. Endpoints and model names remain editable because provider offerings change.
