@@ -448,12 +448,13 @@ class DramaStudioApp:
         ttk.Label(top, textvariable=self.scene_count_var, style="Status.TLabel").pack(side="left", padx=12, pady=(5, 0))
         CurveButton(top, text=self.t("add_scene"), command=self.add_scene, variant="secondary", width=120).pack(side="right")
         bulk = ttk.Frame(self.scenes_tab); bulk.pack(fill="x", pady=(0, 8))
-        for column in range(5): bulk.columnconfigure(column, weight=1)
+        for column in range(7): bulk.columnconfigure(column, weight=1)
         CurveButton(bulk, text=self.t("select_all"), command=self.check_all_scenes, variant="ghost", height=34).grid(row=0, column=0, sticky="ew", padx=2)
         CurveButton(bulk, text=self.t("clear_selection"), command=self.clear_scene_checks, variant="ghost", height=34).grid(row=0, column=1, sticky="ew", padx=2)
-        CurveButton(bulk, text=self.t("approve_selected"), command=lambda: self.set_scene_status("approved"), variant="primary", height=34).grid(row=0, column=2, sticky="ew", padx=2)
-        CurveButton(bulk, text=self.t("review_selected"), command=lambda: self.set_scene_status("reviewed"), variant="secondary", height=34).grid(row=0, column=3, sticky="ew", padx=2)
-        CurveButton(bulk, text=self.t("delete_selected"), command=self.delete_scene, variant="danger", height=34).grid(row=0, column=4, sticky="ew", padx=2)
+        self.scene_action_var = tk.StringVar(value=self.t("choose_status_action"))
+        ttk.Combobox(bulk, textvariable=self.scene_action_var, values=(self.t("approve_selected"), self.t("review_selected"), self.t("delete_selected")), state="readonly").grid(row=0, column=2, columnspan=2, sticky="ew", padx=2)
+        CurveButton(bulk, text=self.t("apply_action"), command=self.apply_scene_bulk_action, variant="secondary", height=34).grid(row=0, column=4, sticky="ew", padx=2)
+        CurveButton(bulk, text=self.t("regenerate_selected_scenes"), command=lambda: self.start_regeneration(False), variant="primary", height=34).grid(row=0, column=5, columnspan=2, sticky="ew", padx=2)
         pane = ttk.Panedwindow(self.scenes_tab, orient="horizontal")
         pane.pack(fill="both", expand=True)
         left_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20)
@@ -473,10 +474,6 @@ class DramaStudioApp:
         CurveButton(moves, text=self.t("move_down"), command=lambda: self.move_scene(1), variant="ghost", height=32).grid(row=0, column=2, sticky="ew", padx=2)
         inspector_head = ttk.Frame(right, style="Surface.TFrame"); inspector_head.pack(fill="x", pady=(0, 8))
         ttk.Label(inspector_head, text=self.t("scene_inspector"), style="Section.TLabel").pack(side="left")
-        self.status_combo = ttk.Combobox(inspector_head, values=("draft", "reviewed", "approved"), state="readonly", width=11)
-        self.status_combo.pack(side="right")
-        self.status_combo.bind("<<ComboboxSelected>>", self.change_current_scene_status)
-        CurveButton(inspector_head, text=self.t("approve_scene"), command=lambda: self.change_current_scene_status(status="approved"), variant="primary", width=125, height=34).pack(side="right", padx=6)
         tabs = ttk.Notebook(right); tabs.pack(fill="both", expand=True)
         story_tab = ttk.Frame(tabs, style="Surface.TFrame"); craft_tab = ttk.Frame(tabs, style="Surface.TFrame"); generation_tab = ttk.Frame(tabs, style="Surface.TFrame")
         tabs.add(story_tab, text=self.t("story_tab")); tabs.add(craft_tab, text=self.t("craft_tab")); tabs.add(generation_tab, text=self.t("generation_tab"))
@@ -507,20 +504,22 @@ class DramaStudioApp:
                     row += 1
             form.columnconfigure(0, weight=1)
         actions = ttk.Frame(right, style="Surface.TFrame"); actions.pack(fill="x", pady=(10, 0))
-        for column in range(3): actions.columnconfigure(column, weight=1)
-        self.regenerate_field_var = tk.StringVar(value="photo_prompt")
-        ttk.Combobox(actions, textvariable=self.regenerate_field_var, values=("plot", "action", "shot", "continuity", "photo_prompt", "video_prompt"), state="readonly", width=14).grid(row=0, column=0, sticky="ew", padx=3, pady=2)
-        CurveButton(actions, text=self.t("regenerate_field"), command=self.start_field_regeneration, variant="secondary", height=38).grid(row=0, column=1, sticky="ew", padx=3, pady=2)
-        CurveButton(actions, text=self.t("rewrite_scene"), command=lambda: self.start_regeneration(False), variant="secondary", height=38).grid(row=0, column=2, sticky="ew", padx=3, pady=2)
-        CurveButton(actions, text=self.t("rewrite_prompts"), command=lambda: self.start_regeneration(True), variant="secondary", height=38).grid(row=1, column=0, columnspan=2, sticky="ew", padx=3, pady=2)
-        CurveButton(actions, text=self.t("save_scene"), command=self.apply_scene, variant="primary", height=38).grid(row=1, column=2, sticky="ew", padx=3, pady=2)
+        actions.columnconfigure(0, weight=1)
+        CurveButton(actions, text=self.t("save_scene"), command=self.apply_scene, variant="primary", height=38).grid(row=0, column=0, sticky="e", padx=3, pady=2)
 
     def _build_prompts(self):
         top = tk.Frame(self.prompts_tab, bg=self.colors["bg"]); top.pack(fill="x", pady=(0, 10))
         ttk.Label(top, text=self.t("prompt_board_title"), style="PageTitle.TLabel").pack(side="left")
         self.prompt_count_var = tk.StringVar(value="")
         ttk.Label(top, textvariable=self.prompt_count_var, style="Status.TLabel").pack(side="left", padx=12)
-        CurveButton(top, text=self.t("generate_prompts"), command=self.start_prompt_generation, variant="primary", width=170).pack(side="right")
+        prompt_bulk = ttk.Frame(self.prompts_tab); prompt_bulk.pack(fill="x", pady=(0, 8))
+        for column in range(7): prompt_bulk.columnconfigure(column, weight=1)
+        CurveButton(prompt_bulk, text=self.t("select_all"), command=self.select_all_prompts, variant="ghost", height=34).grid(row=0, column=0, sticky="ew", padx=2)
+        CurveButton(prompt_bulk, text=self.t("clear_selection"), command=self.clear_prompt_selection, variant="ghost", height=34).grid(row=0, column=1, sticky="ew", padx=2)
+        self.prompt_action_var = tk.StringVar(value=self.t("choose_status_action"))
+        ttk.Combobox(prompt_bulk, textvariable=self.prompt_action_var, values=(self.t("approve_selected"), self.t("review_selected"), self.t("delete_selected")), state="readonly").grid(row=0, column=2, columnspan=2, sticky="ew", padx=2)
+        CurveButton(prompt_bulk, text=self.t("apply_action"), command=self.apply_prompt_bulk_action, variant="secondary", height=34).grid(row=0, column=4, sticky="ew", padx=2)
+        CurveButton(prompt_bulk, text=self.t("regenerate_selected_prompts"), command=self.start_prompt_generation, variant="primary", height=34).grid(row=0, column=5, columnspan=2, sticky="ew", padx=2)
         pane = ttk.Panedwindow(self.prompts_tab, orient="horizontal"); pane.pack(fill="both", expand=True)
         left_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20); right_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20)
         pane.add(left_panel, weight=3); pane.add(right_panel, weight=4)
@@ -528,16 +527,11 @@ class DramaStudioApp:
         for column, label, width in (("scene", self.t("scene"), 105), ("kind", self.t("prompt_type"), 80), ("status", self.t("status"), 90), ("preview", self.t("prompt_preview"), 230)):
             self.prompt_tree.heading(column, text=label); self.prompt_tree.column(column, width=width, anchor="w")
         self.prompt_tree.pack(fill="both", expand=True); self.prompt_tree.bind("<<TreeviewSelect>>", self.show_prompt)
-        buttons = ttk.Frame(left_panel.content); buttons.pack(fill="x", pady=(8, 0))
-        CurveButton(buttons, text=self.t("select_all"), command=lambda: self.prompt_tree.selection_set(self.prompt_tree.get_children()), variant="ghost", width=90, height=34).pack(side="left")
-        CurveButton(buttons, text=self.t("approve_selected"), command=lambda: self.set_prompt_status("approved"), variant="primary", width=132, height=34).pack(side="left", padx=4)
-        CurveButton(buttons, text=self.t("review_selected"), command=lambda: self.set_prompt_status("reviewed"), variant="secondary", width=125, height=34).pack(side="left")
         ttk.Label(right_panel.content, text=self.t("prompt_inspector"), style="Section.TLabel").pack(anchor="w", pady=(0, 8))
         prompt_panel, self.prompt_editor = self._curved_text(right_panel.content, 18, width=60); prompt_panel.pack(fill="both", expand=True)
         self.prompt_char_var = tk.StringVar(value=""); ttk.Label(right_panel.content, textvariable=self.prompt_char_var, style="Sub.TLabel").pack(anchor="e", pady=4)
         actions = ttk.Frame(right_panel.content); actions.pack(fill="x", pady=(6, 0))
         CurveButton(actions, text=self.t("save_prompt"), command=self.save_prompt_edit, variant="secondary", width=115).pack(side="right")
-        CurveButton(actions, text=self.t("regenerate_selected"), command=self.start_prompt_generation, variant="primary", width=160).pack(side="right", padx=5)
 
     def _scrollable_form(self, parent):
         canvas = tk.Canvas(parent, highlightthickness=0, background=self.colors["surface"])
@@ -621,11 +615,14 @@ class DramaStudioApp:
         if self.config.provider != "Demo" and not self.config.api_key:
             messagebox.showinfo(self.t("api_required"), self.t("api_required_body"))
             return
-        index = self.selected_scene
+        indexes = self._scene_action_indexes()
+        if not indexes:
+            messagebox.showinfo(self.t("nothing_selected"), self.t("select_scene_action_body")); return
+        index = indexes[0]
         self.apply_scene()
         if index is None:
             return
-        indexes = self._scene_action_indexes() if not prompts_only else [index]
+        if prompts_only: indexes = [index]
         if len(indexes) > 1:
             if not messagebox.askyesno(self.t("regenerating_scene"), self.t("regenerate_many_confirm", count=len(indexes))): return
             self.busy = True; self.progress["value"] = 0; self.cancel_event.clear(); self.cancel_btn.configure(state="normal")
@@ -689,34 +686,6 @@ class DramaStudioApp:
         CurveButton(actions, text=self.t("keep_original"), command=win.destroy, variant="secondary", width=140).pack(side="right", padx=6)
         win.protocol("WM_DELETE_WINDOW", win.destroy); self.root.wait_window(win)
         return result["accept"]
-
-    def start_field_regeneration(self):
-        if self.busy or self.selected_scene is None: return
-        if self.config.provider != "Demo" and not self.config.api_key:
-            messagebox.showinfo(self.t("api_required"), self.t("api_required_body")); return
-        if not self.apply_scene(silent=True): return
-        index, field = self.selected_scene, self.regenerate_field_var.get()
-        self.busy = True; self.progress.start(12); self.status_var.set(self.t("regenerating_field", name=field))
-        threading.Thread(target=self._field_worker, args=(index, field), daemon=True).start()
-
-    def _field_worker(self, index, field):
-        try:
-            value = regenerate_field(self.project, index, field, ChatProvider(self.config))
-            self.root.after(0, self._field_done, index, field, value, None)
-        except Exception as exc:
-            self.root.after(0, self._field_done, index, field, None, exc)
-
-    def _field_done(self, index, field, value, error):
-        self.busy = False; self.progress.stop()
-        if error:
-            self.status_var.set(self.t("field_failed")); messagebox.showerror(self.t("regeneration_failed"), str(error)); return
-        scene = self.project.scenes[index]
-        setattr(scene, field, value)
-        if field in {"plot", "action", "shot", "continuity"}: invalidate_scene_prompts(scene)
-        elif field == "photo_prompt": scene.photo_status = "draft"
-        elif field == "video_prompt": scene.video_status = "draft"
-        save_project(self.project_root, self.project); self.refresh_all(); self.scene_tree.selection_set(str(index)); self._show_scene(index)
-        self.status_var.set(self.t("regenerated_saved", name=field))
 
     def refresh_all(self):
         for key, widget in self.summary_fields.items():
@@ -809,22 +778,11 @@ class DramaStudioApp:
         if selected: return [int(iid) for iid in selected]
         return []
 
-    def change_current_scene_status(self, _event=None, status=None):
-        if self.selected_scene is None: return
-        self.apply_scene(silent=True)
-        target_status = status or self.status_combo.get()
-        self.project.scenes[self.selected_scene].status = target_status
-        self.status_combo.set(target_status)
-        save_project(self.project_root, self.project); selected = self.selected_scene; self.refresh_all()
-        self.scene_tree.selection_set(str(selected)); self.scene_tree.focus(str(selected)); self._show_scene(selected)
-        self.status_var.set(self.t("scene_status_changed", status=target_status))
-
     def _show_scene(self, index: int):
         self.selected_scene = index; scene = self.project.scenes[index]
         data = scene.to_dict(); data["characters"] = ", ".join(scene.characters)
         data["subtitles"] = "\n".join(f"{item.start_seconds:g}-{item.end_seconds:g} | {item.speaker} | {item.text}" for item in scene.subtitles)
         for key, widget in self.fields.items(): self._set_widget(widget, str(data.get(key, "")))
-        self.status_combo.set(scene.status)
         self.update_photo_count()
 
     def apply_scene(self, silent=False):
@@ -833,8 +791,8 @@ class DramaStudioApp:
             raw = {key: self._get_widget(widget).strip() for key, widget in self.fields.items()}
             raw["episode"] = int(raw["episode"]); raw["scene"] = int(raw["scene"]); raw["duration_seconds"] = int(raw["duration_seconds"])
             raw["characters"] = [x.strip() for x in raw["characters"].split(",") if x.strip()]
-            raw["subtitles"] = self._parse_subtitles(raw["subtitles"]); raw["status"] = self.status_combo.get()
             original = self.project.scenes[self.selected_scene]
+            raw["subtitles"] = self._parse_subtitles(raw["subtitles"]); raw["status"] = original.status
             replacement = Scene.from_dict(raw)
             content_fields = ("plot", "location", "time_of_day", "characters", "character_state", "action", "subtitles", "duration_seconds", "shot", "continuity")
             changed = any(getattr(original, key) != getattr(replacement, key) for key in content_fields)
@@ -864,6 +822,43 @@ class DramaStudioApp:
         for index in indexes: self.project.scenes[index].status = status
         save_project(self.project_root, self.project); self.checked_scene_ids.clear(); self.refresh_all()
         self.status_var.set(self.t("scenes_updated", count=len(indexes)))
+
+    def apply_scene_bulk_action(self):
+        if not self._scene_action_indexes():
+            messagebox.showinfo(self.t("nothing_selected"), self.t("select_scene_action_body")); return
+        action = self.scene_action_var.get()
+        if action == self.t("approve_selected"): self.set_scene_status("approved")
+        elif action == self.t("review_selected"): self.set_scene_status("reviewed")
+        elif action == self.t("delete_selected"): self.delete_scene()
+        else: messagebox.showinfo(self.t("choose_action"), self.t("choose_action_body"))
+
+    def select_all_prompts(self):
+        children = self.prompt_tree.get_children()
+        if children: self.prompt_tree.selection_set(children); self.prompt_tree.focus(children[0])
+
+    def clear_prompt_selection(self):
+        self.prompt_tree.selection_remove(self.prompt_tree.get_children())
+
+    def apply_prompt_bulk_action(self):
+        if not self.prompt_tree.selection():
+            messagebox.showinfo(self.t("nothing_selected"), self.t("select_prompt_action_body")); return
+        action = self.prompt_action_var.get()
+        if action == self.t("approve_selected"): self.set_prompt_status("approved")
+        elif action == self.t("review_selected"): self.set_prompt_status("reviewed")
+        elif action == self.t("delete_selected"): self.delete_selected_prompts()
+        else: messagebox.showinfo(self.t("choose_action"), self.t("choose_action_body"))
+
+    def delete_selected_prompts(self):
+        selected = self.prompt_tree.selection()
+        if not selected:
+            messagebox.showinfo(self.t("nothing_selected"), self.t("select_prompt_action_body")); return
+        if not messagebox.askyesno(self.t("delete_selected"), self.t("delete_prompts_confirm", count=len(selected))): return
+        for iid in selected:
+            index_text, kind = iid.split(":", 1); scene = self.project.scenes[int(index_text)]
+            if kind == "photo": scene.photo_prompt, scene.photo_status = "", "missing"
+            else: scene.video_prompt, scene.video_status = "", "missing"
+        save_project(self.project_root, self.project); self.refresh_all()
+        self.status_var.set(self.t("prompts_deleted", count=len(selected)))
 
     def show_prompt(self, _event=None):
         selected = self.prompt_tree.selection()
@@ -899,7 +894,9 @@ class DramaStudioApp:
     def start_prompt_generation(self):
         if self.busy or not self.project_root: return
         selected = self.prompt_tree.selection()
-        jobs = [(int(iid.split(":", 1)[0]), iid.split(":", 1)[1]) for iid in selected] if selected else [(i, kind) for i, s in enumerate(self.project.scenes) if s.status == "approved" for kind, value in (("photo", s.photo_prompt), ("video", s.video_prompt)) if not value]
+        if not selected:
+            messagebox.showinfo(self.t("nothing_selected"), self.t("select_prompt_action_body")); return
+        jobs = [(int(iid.split(":", 1)[0]), iid.split(":", 1)[1]) for iid in selected]
         jobs = [(index, kind) for index, kind in jobs if self.project.scenes[index].status == "approved"]
         if not jobs:
             messagebox.showinfo(self.t("nothing_to_generate"), self.t("select_approved_scenes")); return

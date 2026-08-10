@@ -77,6 +77,11 @@ TEXT = {
         "regenerate_many_confirm": "Regenerate {count} selected scenes? Their existing prompts will be cleared.",
         "scene_review_required": "Scene review required", "scene_review_body": "{count} scenes are ready. Review and approve them on the Scene Board before generating prompts.",
         "prompt_review_required": "Prompt review required", "prompt_review_body": "{count} new prompts are ready on the Prompt Board. Photo and video prompts must be approved separately.",
+        "choose_status_action": "Choose status action", "apply_action": "Apply", "regenerate_selected_scenes": "Regenerate selected scenes",
+        "regenerate_selected_prompts": "Regenerate selected prompts", "choose_action": "Choose an action",
+        "choose_action_body": "Choose Approve, Reviewed, or Delete, then press Apply.", "nothing_selected": "Nothing selected",
+        "select_scene_action_body": "Select or check at least one scene first.", "select_prompt_action_body": "Select at least one photo or video prompt first.",
+        "delete_prompts_confirm": "Clear {count} selected prompt(s)? Their scenes will not be deleted.", "prompts_deleted": "Cleared {count} prompts",
     },
     "zh": {
         "app_title": "短剧工作室 - 文本制作", "tagline": "小说 → 可直接制作的AI短剧分镜",
@@ -153,6 +158,11 @@ TEXT = {
         "regenerate_many_confirm": "重新生成所选 {count} 个分镜？其已有图片和视频提示词将被清除。",
         "scene_review_required": "需要审核分镜", "scene_review_body": "已生成 {count} 个分镜。请在分镜看板审核并批准后再生成提示词。",
         "prompt_review_required": "需要审核提示词", "prompt_review_body": "提示词看板中有 {count} 条新提示词。图片和视频提示词需要分别审核批准。",
+        "choose_status_action": "选择状态操作", "apply_action": "应用", "regenerate_selected_scenes": "重新生成所选分镜",
+        "regenerate_selected_prompts": "重新生成所选提示词", "choose_action": "请选择操作",
+        "choose_action_body": "请选择批准、标为已审或删除，然后点击应用。", "nothing_selected": "尚未选择内容",
+        "select_scene_action_body": "请先选择或勾选至少一个分镜。", "select_prompt_action_body": "请先选择至少一条图片或视频提示词。",
+        "delete_prompts_confirm": "清除所选 {count} 条提示词？对应分镜不会被删除。", "prompts_deleted": "已清除 {count} 条提示词",
     },
 }
 
