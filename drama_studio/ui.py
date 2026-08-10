@@ -369,27 +369,27 @@ class DramaStudioApp:
         live_tab = ttk.Frame(self.project_tabs, style="Surface.TFrame")
         trash_tab = ttk.Frame(self.project_tabs, style="Surface.TFrame")
         self.project_tabs.add(live_tab, text=self.t("active_projects")); self.project_tabs.add(trash_tab, text=self.t("trash"))
-        self.project_tree = ttk.Treeview(live_tab, columns=("name", "scenes", "prompt_generated", "prompt_progress"), show="headings", selectmode="browse")
-        for column, label, width in (("name", self.t("project_name"), 260), ("scenes", self.t("scenes"), 90),
-                                     ("prompt_generated", self.t("prompts_generated"), 150), ("prompt_progress", self.t("prompt_approval"), 180)):
-            self.project_tree.heading(column, text=label); self.project_tree.column(column, width=width, anchor="w")
-        self.project_tree.pack(fill="both", expand=True, pady=(8, 0))
-        self.project_tree.bind("<Double-1>", lambda _event: self.open_selected_project())
-        actions = ttk.Frame(live_tab, style="Surface.TFrame"); actions.pack(fill="x", pady=(10, 0))
+        actions = ttk.Frame(live_tab, style="Surface.TFrame"); actions.pack(fill="x", pady=(8, 6))
         CurveButton(actions, text=self.t("open_project"), command=self.open_selected_project, variant="primary", width=130).pack(side="left")
         CurveButton(actions, text=self.t("move_to_trash"), command=self.trash_selected_project, variant="danger", width=125).pack(side="left", padx=4)
         CurveButton(actions, text=self.t("rename"), command=self.rename_selected_project, variant="secondary", width=105).pack(side="left", padx=4)
         CurveButton(actions, text=self.t("duplicate"), command=self.duplicate_selected_project, variant="secondary", width=105).pack(side="left", padx=4)
         CurveButton(actions, text=self.t("show_folder"), command=self.show_selected_project, variant="secondary", width=115).pack(side="left", padx=4)
         CurveButton(actions, text=self.t("refresh"), command=self.refresh_projects, variant="ghost", width=90).pack(side="right")
-        self.trash_tree = ttk.Treeview(trash_tab, columns=("name", "deleted", "remaining"), show="headings", selectmode="browse")
-        for column, label, width in (("name", self.t("project_name"), 300), ("deleted", self.t("deleted_on"), 180), ("remaining", self.t("days_remaining"), 160)):
-            self.trash_tree.heading(column, text=label); self.trash_tree.column(column, width=width, anchor="w")
-        self.trash_tree.pack(fill="both", expand=True, pady=(8, 0))
-        trash_actions = ttk.Frame(trash_tab, style="Surface.TFrame"); trash_actions.pack(fill="x", pady=(10, 0))
+        self.project_tree = ttk.Treeview(live_tab, columns=("name", "scenes", "prompt_generated", "prompt_progress"), show="headings", selectmode="browse")
+        for column, label, width in (("name", self.t("project_name"), 260), ("scenes", self.t("scenes"), 90),
+                                     ("prompt_generated", self.t("prompts_generated"), 150), ("prompt_progress", self.t("prompt_approval"), 180)):
+            self.project_tree.heading(column, text=label); self.project_tree.column(column, width=width, anchor="w")
+        self.project_tree.pack(fill="both", expand=True)
+        self.project_tree.bind("<Double-1>", lambda _event: self.open_selected_project())
+        trash_actions = ttk.Frame(trash_tab, style="Surface.TFrame"); trash_actions.pack(fill="x", pady=(8, 6))
         CurveButton(trash_actions, text=self.t("restore"), command=self.restore_selected_project, variant="primary", width=120).pack(side="left")
         CurveButton(trash_actions, text=self.t("delete_permanently"), command=self.delete_selected_forever, variant="danger", width=170).pack(side="left", padx=6)
         ttk.Label(trash_actions, text=self.t("trash_retention"), style="Sub.TLabel").pack(side="right")
+        self.trash_tree = ttk.Treeview(trash_tab, columns=("name", "deleted", "remaining"), show="headings", selectmode="browse")
+        for column, label, width in (("name", self.t("project_name"), 300), ("deleted", self.t("deleted_on"), 180), ("remaining", self.t("days_remaining"), 160)):
+            self.trash_tree.heading(column, text=label); self.trash_tree.column(column, width=width, anchor="w")
+        self.trash_tree.pack(fill="both", expand=True)
         self.refresh_projects()
 
     def choose_folder(self):
