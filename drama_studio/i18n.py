@@ -41,7 +41,7 @@ TEXT = {
         "choose_project_first": "Choose the large parent project folder first.", "import_novel": "Import a novel",
         "import_novel_first": "Import a .docx novel first.", "api_required": "API key required",
         "api_required_body": "Open API Settings and enter the active provider key.",
-        "paid_title": "Start paid API processing", "paid_body": "Send {count:,} extracted characters to {provider}? Provider charges may apply.",
+        "paid_title": "Start paid API processing", "paid_body": "Send {count:,} extracted characters to {provider}, then automatically generate scenes and both prompt types? Provider charges may apply.",
         "processing_failed": "Processing failed", "created_scenes": "Created {count} scenes and saved the project",
         "cancelling": "Cancelling after the current API request…", "project_saved": "Project saved",
         "scene_saved": "Scene edits saved", "delete_scene": "Delete scene", "delete_confirm": "Delete the selected scene?",
@@ -82,6 +82,9 @@ TEXT = {
         "choose_action_body": "Choose Approve, Reviewed, or Delete, then press Apply.", "nothing_selected": "Nothing selected",
         "select_scene_action_body": "Select or check at least one scene first.", "select_prompt_action_body": "Select at least one photo or video prompt first.",
         "delete_prompts_confirm": "Clear {count} selected prompt(s)? Their scenes will not be deleted.", "prompts_deleted": "Cleared {count} prompts",
+        "scene_progress_stat": "Scenes  {percent}%  {done}/{total}", "prompt_progress_stat": "Prompts  {percent}%  {done}/{total}",
+        "prompts_generated": "Prompts generated", "full_pipeline_done": "{scenes} scenes and {prompts} prompts completed",
+        "prompts_incomplete": "Prompt generation incomplete", "prompts_incomplete_body": "Saved {generated}/{total} prompts. {failed} scenes failed; select their missing prompt rows in Prompt Board to retry.",
     },
     "zh": {
         "app_title": "短剧工作室 - 文本制作", "tagline": "小说 → 可直接制作的AI短剧分镜",
@@ -122,7 +125,7 @@ TEXT = {
         "choose_project_first": "请先选择项目总文件夹。", "import_novel": "请导入小说",
         "import_novel_first": "请先导入一份 .docx 小说。", "api_required": "需要API密钥",
         "api_required_body": "请打开API设置并输入当前模型的密钥。",
-        "paid_title": "开始付费API处理", "paid_body": "将提取出的 {count:,} 个字符发送给 {provider}？模型服务商可能收费。",
+        "paid_title": "开始付费API处理", "paid_body": "将提取出的 {count:,} 个字符发送给 {provider}，并自动生成全部分镜及两类提示词？模型服务商可能收费。",
         "processing_failed": "处理失败", "created_scenes": "已生成并保存 {count} 个分镜",
         "cancelling": "当前API请求结束后取消…", "project_saved": "项目已保存",
         "scene_saved": "分镜修改已保存", "delete_scene": "删除分镜", "delete_confirm": "确定删除所选分镜？",
@@ -163,6 +166,9 @@ TEXT = {
         "choose_action_body": "请选择批准、标为已审或删除，然后点击应用。", "nothing_selected": "尚未选择内容",
         "select_scene_action_body": "请先选择或勾选至少一个分镜。", "select_prompt_action_body": "请先选择至少一条图片或视频提示词。",
         "delete_prompts_confirm": "清除所选 {count} 条提示词？对应分镜不会被删除。", "prompts_deleted": "已清除 {count} 条提示词",
+        "scene_progress_stat": "分镜  {percent}%  {done}/{total}", "prompt_progress_stat": "提示词  {percent}%  {done}/{total}",
+        "prompts_generated": "已生成提示词", "full_pipeline_done": "已完成 {scenes} 个分镜和 {prompts} 条提示词",
+        "prompts_incomplete": "提示词生成未全部完成", "prompts_incomplete_body": "已保存 {generated}/{total} 条提示词，{failed} 个分镜失败；请在提示词看板选择缺失行重试。",
     },
 }
 

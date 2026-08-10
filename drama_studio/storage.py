@@ -43,6 +43,15 @@ def _atomic_text(path: Path, content: str) -> None:
 
 def save_project(root: str | Path, project: ProjectData) -> None:
     paths = ensure_project_folders(root)
+    scene_total = len(project.scenes)
+    prompt_total = scene_total * 2
+    prompt_done = sum(bool(scene.photo_prompt.strip()) for scene in project.scenes) + sum(bool(scene.video_prompt.strip()) for scene in project.scenes)
+    project.processing.update(scene_percent=100 if scene_total else 0, scene_done=scene_total, scene_total=scene_total,
+                              prompt_percent=(prompt_done / prompt_total * 100) if prompt_total else 0,
+                              prompt_done=prompt_done, prompt_total=prompt_total)
+    project.processing.setdefault("scene_state", "complete" if scene_total else "idle")
+    if project.processing.get("prompt_state") != "processing":
+        project.processing["prompt_state"] = "complete" if prompt_total and prompt_done == prompt_total else "idle" if not prompt_done else "warning"
     scene_plan = {"project_summary": project.project_summary, "scenes": [scene.to_dict() for scene in project.scenes]}
     internal = paths["plan"] / "project.drama"
     if internal.exists():
@@ -136,7 +145,7 @@ def render_scene_plan(project: ProjectData) -> str:
              f"STYLE: {summary.get('visual_style', '')}", ""]
     for scene in project.scenes:
         subtitles = " / ".join(f"{s.speaker}: {s.text}" for s in scene.subtitles)
-        lines.extend([f"<<<SCENE_START {scene.prompt_id}>>>", f"STATUS: {scene.status.upper()}",
+        lines.extend([f"<<<SCENE_START {scene.prompt_id}>>>",
                       f"EPISODE: {scene.episode}", f"SCENE: {scene.scene}", f"LOCATION: {scene.location}",
                       f"CHARACTERS: {', '.join(scene.characters)}", f"DURATION: {scene.duration_seconds}s",
                       f"PLOT: {scene.plot}", f"ACTION: {scene.action}", f"SUBTITLES: {subtitles}",

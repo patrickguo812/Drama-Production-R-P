@@ -11,21 +11,17 @@
 7. Import one `.docx` novel and inspect the extracted preview. A safe copy is placed in `Source`.
 8. Choose **Create scene plan**.
 
-Long novels are read in sections. The provider first extracts plot evidence from each section, then produces a unified adaptation. Do not close the application during an active API run.
+Long novels are read in sections. The provider creates the complete scene plan and then automatically creates both prompts for every scene. The sidebar shows separate Scenes and Prompts progress throughout the run.
 
 ## Review
 
 The **Story & cast** section provides plain-language fields for the combined theme/style summary and recurring-character profiles. Projects autosave to `project.drama`, and reopening a project restores its scenes and characters.
 
-The **Scene Board** lists generatable clips. Use multi-selection to mark several scenes reviewed or approved. Select a scene to edit its plot, location, character IDs, costume/state, action, subtitle timing, duration, camera, and continuity. Enter each subtitle on its own line as `start-end | speaker | text`. Use statuses:
+The **Scene Board** lists generatable clips without an approval stage. Select a scene to edit its plot, location, character IDs, costume/state, action, subtitle timing, duration, camera, and continuity. Enter each subtitle on its own line as `start-end | speaker | text`. Scenes can be added, duplicated, deleted, reordered, or regenerated.
 
-- `draft`: not yet checked
-- `reviewed`: checked but not final
-- `approved`: ready for later generation
+The separate **Prompt Board** is the only approval stage and edits or approves photo and video prompts independently. Photo prompts target dense, precise Chinese of approximately 100 characters. A slight overrun is allowed and never blocks saving.
 
-Only approved scenes can produce prompts. The separate **Prompt Board** generates, edits, and approves photo and video prompts independently. Photo prompts target dense, precise Chinese of approximately 100 characters. A slight overrun is allowed and never blocks saving.
-
-Use **Regenerate field** to replace one field. **Regenerate scene** shows the current and proposed versions before acceptance. Changing an approved scene returns it to draft and clears its old photo/video prompts. Regenerated prompts also return to draft for manual approval.
+**Regenerate selected scenes** shows the current and proposed versions before replacing one scene, and supports confirmed batches. Changing any scene clears its old photo/video prompts. Regenerate those missing rows from Prompt Board, where they return to draft for manual approval.
 
 ## Prompt extraction contract
 

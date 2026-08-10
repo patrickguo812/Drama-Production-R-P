@@ -192,6 +192,10 @@ class DramaStudioApp:
         style.configure("TPanedwindow", background=self.colors["bg"], sashwidth=8)
         style.configure("TNotebook.Tab", font=("Helvetica Neue", 10, "bold"), padding=(18, 10), background="#EDF5FF", foreground=self.colors["muted"], borderwidth=0)
         style.map("TNotebook.Tab", background=[("selected", self.colors["surface"])], foreground=[("selected", self.colors["accent"])])
+        style.configure("Sidebar.Horizontal.TProgressbar", troughcolor="#4779AB", background="#77B5FF", borderwidth=0, thickness=8)
+        style.configure("SidebarComplete.Horizontal.TProgressbar", troughcolor="#4779AB", background="#63D4AE", borderwidth=0, thickness=8)
+        style.configure("SidebarWarning.Horizontal.TProgressbar", troughcolor="#4779AB", background="#F4B65F", borderwidth=0, thickness=8)
+        style.configure("SidebarIdle.Horizontal.TProgressbar", troughcolor="#4779AB", background="#7899BA", borderwidth=0, thickness=8)
 
     def _build(self):
         top = ttk.Frame(self.root, style="Surface.TFrame", padding=(24, 16))
@@ -236,13 +240,20 @@ class DramaStudioApp:
         for key, label in self.nav_labels.items():
             button = CurveButton(sidebar, text=label, variant="nav", height=44, command=lambda page=key: self._show_page(page))
             button.pack(fill="x", pady=1); self.nav_buttons[key] = button
-        self.output_title = tk.Label(sidebar, text=self.t("output"), bg=self.colors["sidebar"], fg="#C4DCF3", font=("Helvetica Neue", 9, "bold"), anchor="w", padx=18, pady=8); self.output_title.pack(fill="x", pady=(20, 0))
-        self.output_label = tk.Label(sidebar, text=self.t("output_folders"), bg=self.colors["sidebar"], fg="#E8F3FF", justify="left", anchor="w", padx=18, font=("Helvetica Neue", 10), pady=4); self.output_label.pack(fill="x")
         self.language_box = tk.Frame(sidebar, bg=self.colors["sidebar"]); self.language_box.pack(side="bottom", fill="x", padx=10, pady=12)
         self.language_label = tk.Label(self.language_box, text=self.t("language"), bg=self.colors["sidebar"], fg="#C4DCF3", font=("Helvetica Neue", 9, "bold"), anchor="w"); self.language_label.pack(anchor="w", padx=8, pady=(0, 5))
         self.language_buttons = tk.Frame(self.language_box, bg=self.colors["sidebar"]); self.language_buttons.pack(fill="x")
         self.en_button = CurveButton(self.language_buttons, text="EN", command=lambda: self.switch_language("en"), variant="nav_active" if self.language == "en" else "nav", width=72, height=34); self.en_button.pack(side="left", padx=(0, 4))
         self.zh_button = CurveButton(self.language_buttons, text="中文", command=lambda: self.switch_language("zh"), variant="nav_active" if self.language == "zh" else "nav", width=72, height=34); self.zh_button.pack(side="left")
+        self.sidebar_progress = tk.Frame(sidebar, bg=self.colors["sidebar"]); self.sidebar_progress.pack(side="bottom", fill="x", padx=12, pady=(8, 4))
+        self.scene_progress_text = tk.StringVar(); self.prompt_progress_text = tk.StringVar()
+        self.scene_progress_label = tk.Label(self.sidebar_progress, textvariable=self.scene_progress_text, bg=self.colors["sidebar"], fg="#F4FAFF", font=("Helvetica Neue", 9, "bold"), anchor="w")
+        self.scene_progress_label.pack(fill="x", pady=(0, 3))
+        self.scene_progress_bar = ttk.Progressbar(self.sidebar_progress, style="Sidebar.Horizontal.TProgressbar", maximum=100); self.scene_progress_bar.pack(fill="x", pady=(0, 10))
+        self.prompt_progress_label = tk.Label(self.sidebar_progress, textvariable=self.prompt_progress_text, bg=self.colors["sidebar"], fg="#F4FAFF", font=("Helvetica Neue", 9, "bold"), anchor="w")
+        self.prompt_progress_label.pack(fill="x", pady=(0, 3))
+        self.prompt_progress_bar = ttk.Progressbar(self.sidebar_progress, style="Sidebar.Horizontal.TProgressbar", maximum=100); self.prompt_progress_bar.pack(fill="x")
+        self.refresh_progress_display()
 
         self.page_container = tk.Frame(workspace, bg=self.colors["bg"], highlightthickness=0); self.page_container.pack(side="left", fill="both", expand=True, padx=(14, 0))
         self.projects_tab = tk.Frame(self.page_container, bg=self.colors["bg"], padx=18, pady=14)
@@ -262,8 +273,7 @@ class DramaStudioApp:
 
         bottom = ttk.Frame(self.root, padding=(22, 2, 22, 14))
         bottom.pack(fill="x")
-        self.progress = ttk.Progressbar(bottom, mode="determinate", length=190, maximum=100)
-        self.progress.pack(side="left")
+        self.progress = ttk.Progressbar(bottom, mode="determinate", length=1, maximum=100)
         self.status_var = tk.StringVar(value=self.t("ready"))
         ttk.Label(bottom, textvariable=self.status_var, style="Status.TLabel").pack(side="left", padx=10)
         CurveButton(bottom, text=self.t("save_changes"), command=self.save, variant="secondary", width=130).pack(side="right")
@@ -282,17 +292,51 @@ class DramaStudioApp:
         for key, button in self.nav_buttons.items():
             button.configure(text=icons[key] if self.sidebar_collapsed else self.nav_labels[key])
         if self.sidebar_collapsed:
-            self.output_title.pack_forget(); self.output_label.pack_forget(); self.language_label.pack_forget()
+            self.language_label.pack_forget()
             self.en_button.configure(width=48); self.zh_button.configure(width=48)
             self.en_button.pack_forget(); self.zh_button.pack_forget()
             self.en_button.pack(pady=2); self.zh_button.pack(pady=2)
         else:
-            self.output_title.pack(fill="x", pady=(20, 0), before=self.language_box)
-            self.output_label.pack(fill="x", before=self.language_box)
             self.language_label.pack(anchor="w", padx=8, pady=(0, 5), before=self.language_buttons)
             self.en_button.configure(width=72); self.zh_button.configure(width=72)
             self.en_button.pack_forget(); self.zh_button.pack_forget()
             self.en_button.pack(side="left", padx=(0, 4)); self.zh_button.pack(side="left")
+        self.refresh_progress_display()
+
+    def refresh_progress_display(self):
+        if not hasattr(self, "scene_progress_bar"): return
+        processing = self.project.processing or {}
+        scene_total = int(processing.get("scene_total", len(self.project.scenes)) or 0)
+        scene_done = int(processing.get("scene_done", len(self.project.scenes)) or 0)
+        scene_percent = float(processing.get("scene_percent", 100 if self.project.scenes else 0) or 0)
+        prompt_total = len(self.project.scenes) * 2
+        generated = sum(bool(s.photo_prompt.strip()) for s in self.project.scenes) + sum(bool(s.video_prompt.strip()) for s in self.project.scenes)
+        prompt_done = int(processing.get("prompt_done", generated) or 0)
+        prompt_total = int(processing.get("prompt_total", prompt_total) or 0)
+        prompt_percent = float(processing.get("prompt_percent", (prompt_done / prompt_total * 100) if prompt_total else 0) or 0)
+        self.scene_progress_bar["value"] = max(0, min(100, scene_percent))
+        self.prompt_progress_bar["value"] = max(0, min(100, prompt_percent))
+        scene_state = processing.get("scene_state", "complete" if scene_percent >= 100 else "idle" if scene_percent <= 0 else "processing")
+        prompt_state = processing.get("prompt_state", "complete" if prompt_percent >= 100 else "idle" if prompt_percent <= 0 else "warning")
+        styles = {"complete": "SidebarComplete.Horizontal.TProgressbar", "warning": "SidebarWarning.Horizontal.TProgressbar", "idle": "SidebarIdle.Horizontal.TProgressbar", "processing": "Sidebar.Horizontal.TProgressbar"}
+        self.scene_progress_bar.configure(style=styles.get(scene_state, styles["processing"]))
+        self.prompt_progress_bar.configure(style=styles.get(prompt_state, styles["processing"]))
+        if self.sidebar_collapsed:
+            self.scene_progress_text.set(f"S  {scene_percent:.0f}%")
+            self.prompt_progress_text.set(f"P  {prompt_percent:.0f}%")
+        else:
+            self.scene_progress_text.set(self.t("scene_progress_stat", percent=round(scene_percent), done=scene_done, total=scene_total))
+            self.prompt_progress_text.set(self.t("prompt_progress_stat", percent=round(prompt_percent), done=prompt_done, total=prompt_total))
+
+    def _update_progress_ui(self, kind, percent, done, total):
+        if kind == "scene":
+            self.scene_progress_bar.configure(style="SidebarComplete.Horizontal.TProgressbar" if percent >= 100 else "Sidebar.Horizontal.TProgressbar")
+            self.scene_progress_bar["value"] = percent
+            self.scene_progress_text.set((f"S  {percent:.0f}%" if self.sidebar_collapsed else self.t("scene_progress_stat", percent=round(percent), done=done, total=total)))
+        else:
+            self.prompt_progress_bar.configure(style="SidebarComplete.Horizontal.TProgressbar" if percent >= 100 else "Sidebar.Horizontal.TProgressbar")
+            self.prompt_progress_bar["value"] = percent
+            self.prompt_progress_text.set((f"P  {percent:.0f}%" if self.sidebar_collapsed else self.t("prompt_progress_stat", percent=round(percent), done=done, total=total)))
 
     def _novel_label(self):
         if not self.novel: return self.t("no_novel")
@@ -321,9 +365,9 @@ class DramaStudioApp:
         self.library_var = tk.StringVar(value=str(self.project_library) if self.project_library else self.t("no_library"))
         ttk.Label(self.projects_tab, textvariable=self.library_var, style="Status.TLabel").pack(anchor="w", pady=(0, 10))
         card = BezierPanel(self.projects_tab, fill=self.colors["surface"], radius=22); card.pack(fill="both", expand=True)
-        self.project_tree = ttk.Treeview(card.content, columns=("name", "scenes", "scene_progress", "prompt_progress"), show="headings", selectmode="browse")
+        self.project_tree = ttk.Treeview(card.content, columns=("name", "scenes", "prompt_generated", "prompt_progress"), show="headings", selectmode="browse")
         for column, label, width in (("name", self.t("project_name"), 260), ("scenes", self.t("scenes"), 90),
-                                     ("scene_progress", self.t("scene_approval"), 150), ("prompt_progress", self.t("prompt_approval"), 180)):
+                                     ("prompt_generated", self.t("prompts_generated"), 150), ("prompt_progress", self.t("prompt_approval"), 180)):
             self.project_tree.heading(column, text=label); self.project_tree.column(column, width=width, anchor="w")
         self.project_tree.pack(fill="both", expand=True)
         self.project_tree.bind("<Double-1>", lambda _event: self.open_selected_project())
@@ -344,9 +388,10 @@ class DramaStudioApp:
         self.project_tree.delete(*self.project_tree.get_children())
         if not self.project_library: return
         for root, project in scan_projects(self.project_library):
-            scenes = len(project.scenes); approved = sum(s.status == "approved" for s in project.scenes)
-            prompts = scenes * 2; approved_prompts = sum(s.photo_status == "approved" for s in project.scenes) + sum(s.video_status == "approved" for s in project.scenes)
-            self.project_tree.insert("", "end", iid=str(root), values=(project.project_name or root.name, scenes, f"{approved}/{scenes}", f"{approved_prompts}/{prompts}"))
+            scenes = len(project.scenes); prompts = scenes * 2
+            generated = sum(bool(s.photo_prompt.strip()) for s in project.scenes) + sum(bool(s.video_prompt.strip()) for s in project.scenes)
+            approved_prompts = sum(s.photo_status == "approved" for s in project.scenes) + sum(s.video_status == "approved" for s in project.scenes)
+            self.project_tree.insert("", "end", iid=str(root), values=(project.project_name or root.name, scenes, f"{generated}/{prompts}", f"{approved_prompts}/{prompts}"))
 
     def create_new_project(self):
         if not self.project_library:
@@ -448,21 +493,19 @@ class DramaStudioApp:
         ttk.Label(top, textvariable=self.scene_count_var, style="Status.TLabel").pack(side="left", padx=12, pady=(5, 0))
         CurveButton(top, text=self.t("add_scene"), command=self.add_scene, variant="secondary", width=120).pack(side="right")
         bulk = ttk.Frame(self.scenes_tab); bulk.pack(fill="x", pady=(0, 8))
-        for column in range(7): bulk.columnconfigure(column, weight=1)
+        for column in range(5): bulk.columnconfigure(column, weight=1)
         CurveButton(bulk, text=self.t("select_all"), command=self.check_all_scenes, variant="ghost", height=34).grid(row=0, column=0, sticky="ew", padx=2)
         CurveButton(bulk, text=self.t("clear_selection"), command=self.clear_scene_checks, variant="ghost", height=34).grid(row=0, column=1, sticky="ew", padx=2)
-        self.scene_action_var = tk.StringVar(value=self.t("choose_status_action"))
-        ttk.Combobox(bulk, textvariable=self.scene_action_var, values=(self.t("approve_selected"), self.t("review_selected"), self.t("delete_selected")), state="readonly").grid(row=0, column=2, columnspan=2, sticky="ew", padx=2)
-        CurveButton(bulk, text=self.t("apply_action"), command=self.apply_scene_bulk_action, variant="secondary", height=34).grid(row=0, column=4, sticky="ew", padx=2)
-        CurveButton(bulk, text=self.t("regenerate_selected_scenes"), command=lambda: self.start_regeneration(False), variant="primary", height=34).grid(row=0, column=5, columnspan=2, sticky="ew", padx=2)
+        CurveButton(bulk, text=self.t("delete_selected"), command=self.delete_scene, variant="danger", height=34).grid(row=0, column=2, sticky="ew", padx=2)
+        CurveButton(bulk, text=self.t("regenerate_selected_scenes"), command=lambda: self.start_regeneration(False), variant="primary", height=34).grid(row=0, column=3, columnspan=2, sticky="ew", padx=2)
         pane = ttk.Panedwindow(self.scenes_tab, orient="horizontal")
         pane.pack(fill="both", expand=True)
         left_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20)
         right_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20)
         left, right = left_panel.content, right_panel.content
         pane.add(left_panel, weight=3); pane.add(right_panel, weight=5)
-        self.scene_tree = ttk.Treeview(left, columns=("check", "id", "loc", "status"), show="headings", selectmode="extended")
-        for column, label, width in (("check", self.t("select"), 58), ("id", self.t("scene"), 100), ("loc", self.t("location"), 160), ("status", self.t("status"), 90)):
+        self.scene_tree = ttk.Treeview(left, columns=("check", "id", "loc"), show="headings", selectmode="extended")
+        for column, label, width in (("check", self.t("select"), 58), ("id", self.t("scene"), 110), ("loc", self.t("location"), 220)):
             self.scene_tree.heading(column, text=label); self.scene_tree.column(column, width=width, anchor="w")
         self.scene_tree.pack(fill="both", expand=True)
         self.scene_tree.bind("<<TreeviewSelect>>", self.select_scene)
@@ -578,22 +621,53 @@ class DramaStudioApp:
         if self.config.provider != "Demo" and not messagebox.askyesno(self.t("paid_title"), self.t("paid_body", count=len(self.novel.text), provider=self.config.provider)):
             return
         self.busy = True; self.cancel_event.clear(); self.progress["value"] = 0; self.process_btn.configure(state="disabled"); self.cancel_btn.configure(state="normal")
+        self._update_progress_ui("scene", 0, 0, 100); self._update_progress_ui("prompt", 0, 0, 0)
         threading.Thread(target=self._process_worker, daemon=True).start()
 
     def _process_worker(self):
         try:
-            project = process_novel(self.novel, ChatProvider(self.config), self._thread_progress, self.cancel_event.is_set)
-            self.root.after(0, self._processing_done, project, None)
+            provider = ChatProvider(self.config)
+            project = process_novel(self.novel, provider, self._scene_thread_progress, self.cancel_event.is_set)
+            project.project_name = self.project.project_name or self.project_root.name
+            project.source_document = self.project.source_document
+            project.processing = {"scene_percent": 100, "scene_done": len(project.scenes), "scene_total": len(project.scenes),
+                                  "prompt_percent": 0, "prompt_done": 0, "prompt_total": len(project.scenes) * 2}
+            save_project(self.project_root, project)
+            failed = []
+            prompt_done, prompt_total = 0, len(project.scenes) * 2
+            for index, original in enumerate(project.scenes):
+                if self.cancel_event.is_set(): break
+                try:
+                    generated = regenerate_scene(project, index, provider, prompts_only=True)
+                    original.photo_prompt, original.video_prompt = generated.photo_prompt, generated.video_prompt
+                    original.photo_status = original.video_status = "draft"
+                    prompt_done += 2
+                except Exception:
+                    failed.append(original.prompt_id)
+                    original.photo_prompt = original.video_prompt = ""
+                    original.photo_status = original.video_status = "missing"
+                percent = prompt_done / max(1, prompt_total) * 100
+                project.processing.update(prompt_percent=percent, prompt_done=prompt_done, prompt_total=prompt_total)
+                save_project(self.project_root, project)
+                self.root.after(0, self._update_progress_ui, "prompt", percent, prompt_done, prompt_total)
+                self.root.after(0, self.status_var.set, f"{original.prompt_id} · {prompt_done}/{prompt_total}")
+            cancelled = self.cancel_event.is_set()
+            self.root.after(0, self._processing_done, project, None, failed, cancelled)
         except Exception as exc:
-            self.root.after(0, self._processing_done, None, exc)
+            self.root.after(0, self._processing_done, None, exc, [], False)
 
-    def _processing_done(self, project, error):
+    def _processing_done(self, project, error, failed, cancelled):
         self.busy = False; self.progress["value"] = 100; self.process_btn.configure(state="normal"); self.cancel_btn.configure(state="disabled")
         if error: self.status_var.set(self.t("processing_failed")); messagebox.showerror(self.t("processing_failed"), str(error)); return
-        project.project_name = self.project.project_name or self.project_root.name
-        project.source_document = self.project.source_document
-        self.project = project; save_project(self.project_root, self.project); self.refresh_all(); self._show_page("scenes"); self.status_var.set(self.t("created_scenes", count=len(project.scenes)))
-        messagebox.showinfo(self.t("scene_review_required"), self.t("scene_review_body", count=len(project.scenes)))
+        project.processing["scene_state"] = "complete"
+        project.processing["prompt_state"] = "warning" if failed or cancelled else "complete"
+        self.project = project; save_project(self.project_root, self.project); self.refresh_all(); self._show_page("prompts")
+        generated = sum(bool(s.photo_prompt) for s in project.scenes) + sum(bool(s.video_prompt) for s in project.scenes)
+        self.status_var.set(self.t("full_pipeline_done", scenes=len(project.scenes), prompts=generated))
+        if failed or cancelled:
+            messagebox.showwarning(self.t("prompts_incomplete"), self.t("prompts_incomplete_body", generated=generated, total=len(project.scenes) * 2, failed=len(failed)))
+        else:
+            messagebox.showinfo(self.t("prompt_review_required"), self.t("prompt_review_body", count=generated))
 
     def cancel_processing(self):
         if self.busy:
@@ -607,6 +681,16 @@ class DramaStudioApp:
             except ValueError: percent = 0
             self.root.after(0, self.progress.configure, {"value": percent})
             message = parts[3]
+        self.root.after(0, self.status_var.set, message)
+
+    def _scene_thread_progress(self, message):
+        parts = message.split(" ", 3)
+        percent = 0
+        if len(parts) == 4 and parts[0] == "PROGRESS":
+            try: percent = int(parts[1]) / max(1, int(parts[2])) * 100
+            except ValueError: percent = 0
+            message = parts[3]
+        self.root.after(0, self._update_progress_ui, "scene", percent, round(percent), 100)
         self.root.after(0, self.status_var.set, message)
 
     def start_regeneration(self, prompts_only: bool):
@@ -695,14 +779,11 @@ class DramaStudioApp:
         self.character_list.delete(0, "end")
         for c in self.project.characters: self.character_list.insert("end", f"{c.get('character_id', '?')} — {c.get('name', '')}")
         self.scene_tree.delete(*self.scene_tree.get_children())
-        self.scene_tree.tag_configure("draft", foreground=self.colors["muted"])
-        self.scene_tree.tag_configure("reviewed", foreground=self.colors["warning"])
-        self.scene_tree.tag_configure("approved", foreground=self.colors["success"])
         valid_ids = {scene.prompt_id for scene in self.project.scenes}
         self.checked_scene_ids.intersection_update(valid_ids)
         for i, s in enumerate(self.project.scenes):
             mark = "☑" if s.prompt_id in self.checked_scene_ids else "☐"
-            self.scene_tree.insert("", "end", iid=str(i), values=(mark, s.prompt_id, s.location, s.status.title()), tags=(s.status,))
+            self.scene_tree.insert("", "end", iid=str(i), values=(mark, s.prompt_id, s.location))
         self.scene_count_var.set(self.t("scenes_count", count=len(self.project.scenes)))
         self.prompt_tree.delete(*self.prompt_tree.get_children())
         approved_prompts = 0
@@ -712,6 +793,7 @@ class DramaStudioApp:
                 self.prompt_tree.insert("", "end", iid=iid, values=(scene.prompt_id, self.t(kind), status.title(), preview), tags=(status,))
                 approved_prompts += status == "approved"
         self.prompt_count_var.set(self.t("prompts_approved", approved=approved_prompts, total=len(self.project.scenes) * 2))
+        self.refresh_progress_display()
         self.refresh_projects()
         if self.project.scenes:
             self.scene_tree.selection_set("0"); self.scene_tree.focus("0"); self._show_scene(0)
@@ -796,7 +878,7 @@ class DramaStudioApp:
             replacement = Scene.from_dict(raw)
             content_fields = ("plot", "location", "time_of_day", "characters", "character_state", "action", "subtitles", "duration_seconds", "shot", "continuity")
             changed = any(getattr(original, key) != getattr(replacement, key) for key in content_fields)
-            if changed and original.status == "approved":
+            if changed:
                 invalidate_scene_prompts(replacement)
             else:
                 replacement.photo_status, replacement.video_status = original.photo_status, original.video_status
@@ -814,23 +896,6 @@ class DramaStudioApp:
             self.scene_tree.selection_set(str(selected)); self._show_scene(selected)
         self.status_var.set(self.t("scene_saved"))
         return True
-
-    def set_scene_status(self, status):
-        indexes = self._scene_action_indexes()
-        if not indexes: return
-        self.apply_scene(silent=True)
-        for index in indexes: self.project.scenes[index].status = status
-        save_project(self.project_root, self.project); self.checked_scene_ids.clear(); self.refresh_all()
-        self.status_var.set(self.t("scenes_updated", count=len(indexes)))
-
-    def apply_scene_bulk_action(self):
-        if not self._scene_action_indexes():
-            messagebox.showinfo(self.t("nothing_selected"), self.t("select_scene_action_body")); return
-        action = self.scene_action_var.get()
-        if action == self.t("approve_selected"): self.set_scene_status("approved")
-        elif action == self.t("review_selected"): self.set_scene_status("reviewed")
-        elif action == self.t("delete_selected"): self.delete_scene()
-        else: messagebox.showinfo(self.t("choose_action"), self.t("choose_action_body"))
 
     def select_all_prompts(self):
         children = self.prompt_tree.get_children()
@@ -897,7 +962,6 @@ class DramaStudioApp:
         if not selected:
             messagebox.showinfo(self.t("nothing_selected"), self.t("select_prompt_action_body")); return
         jobs = [(int(iid.split(":", 1)[0]), iid.split(":", 1)[1]) for iid in selected]
-        jobs = [(index, kind) for index, kind in jobs if self.project.scenes[index].status == "approved"]
         if not jobs:
             messagebox.showinfo(self.t("nothing_to_generate"), self.t("select_approved_scenes")); return
         if self.config.provider != "Demo" and not self.config.api_key:
@@ -914,7 +978,9 @@ class DramaStudioApp:
                 field = "photo_prompt" if kind == "photo" else "video_prompt"
                 value = regenerate_field(self.project, index, field, provider)
                 results.append((index, kind, value))
-                self._thread_progress(f"PROGRESS {position} {len(jobs)} Generated {kind} prompt for {self.project.scenes[index].prompt_id}")
+                percent = position / len(jobs) * 100
+                self.root.after(0, self._update_progress_ui, "prompt", percent, position, len(jobs))
+                self.root.after(0, self.status_var.set, f"{self.project.scenes[index].prompt_id} · {position}/{len(jobs)}")
             self.root.after(0, self._prompt_done, results, None)
         except Exception as exc: self.root.after(0, self._prompt_done, results, exc)
 
@@ -945,6 +1011,7 @@ class DramaStudioApp:
     def duplicate_scene(self):
         if self.selected_scene is None: return
         scene = copy.deepcopy(self.project.scenes[self.selected_scene]); scene.scene += 1; scene.prompt_id += "_COPY"; scene.status = "draft"
+        invalidate_scene_prompts(scene)
         target = self.selected_scene + 1; self.project.scenes.insert(target, scene); save_project(self.project_root, self.project); self.refresh_all()
         self.scene_tree.selection_set(str(target)); self.scene_tree.focus(str(target)); self.scene_tree.see(str(target)); self._show_scene(target)
 

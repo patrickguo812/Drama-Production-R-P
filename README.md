@@ -39,9 +39,10 @@ The image/video folders are prepared for the later generation stage. This MVP st
 - Long-novel chunk analysis followed by episode-batched scene generation
 - Editable scene ordering, duration, location, action, subtitle timing, camera and continuity
 - Project Manager with reusable projects and automatic folder creation
-- Separate scene and photo/video prompt approval boards with multi-selection
-- Draft/reviewed/approved status per scene and per prompt
-- Editing an approved scene clears its obsolete prompts automatically
+- Automatic scene-to-photo/video-prompt processing without a scene approval pause
+- Editable Scene Board with selected-scene regeneration and a separate Prompt Board approval stage
+- Draft/reviewed/approved status per prompt
+- Editing any scene clears its obsolete prompts automatically
 - Regenerate one field, both prompts, or the complete selected scene
 - Automatic prompt character counts and atomic autosaving
 - Cancellation between API calls and retry handling for temporary provider failures
