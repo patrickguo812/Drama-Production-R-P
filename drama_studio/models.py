@@ -30,8 +30,8 @@ class Scene:
     photo_prompt: str = ""
     video_prompt: str = ""
     status: str = "draft"
-    photo_status: str = "draft"
-    video_status: str = "draft"
+    photo_status: str = "missing"
+    video_status: str = "missing"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Scene":

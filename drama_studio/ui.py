@@ -142,6 +142,7 @@ class DramaStudioApp:
         self.novel: ExtractedNovel | None = None
         self.project = ProjectData()
         self.selected_scene: int | None = None
+        self.checked_scene_ids: set[str] = set()
         self.sidebar_collapsed = False
         self.busy = False
         self.cancel_event = threading.Event()
@@ -451,23 +452,30 @@ class DramaStudioApp:
         left_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20)
         right_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20)
         left, right = left_panel.content, right_panel.content
-        pane.add(left_panel, weight=2); pane.add(right_panel, weight=5)
-        self.scene_tree = ttk.Treeview(left, columns=("id", "loc", "status"), show="headings", selectmode="extended")
-        for column, label, width in (("id", "SCENE", 100), ("loc", "LOCATION", 170), ("status", "STATUS", 90)):
+        pane.add(left_panel, weight=3); pane.add(right_panel, weight=5)
+        self.scene_tree = ttk.Treeview(left, columns=("check", "id", "loc", "status"), show="headings", selectmode="browse")
+        for column, label, width in (("check", self.t("select"), 58), ("id", self.t("scene"), 100), ("loc", self.t("location"), 160), ("status", self.t("status"), 90)):
             self.scene_tree.heading(column, text=label); self.scene_tree.column(column, width=width, anchor="w")
         self.scene_tree.pack(fill="both", expand=True)
         self.scene_tree.bind("<<TreeviewSelect>>", self.select_scene)
-        buttons = ttk.Frame(left); buttons.pack(fill="x", pady=(8, 0))
-        for key, command in (("duplicate", self.duplicate_scene), ("delete", self.delete_scene), ("move_up", lambda: self.move_scene(-1)), ("move_down", lambda: self.move_scene(1))):
-            CurveButton(buttons, text=self.t(key), command=command, variant="danger" if key == "delete" else "ghost", width=82, height=34).pack(side="left", padx=(0, 4))
+        self.scene_tree.bind("<Button-1>", self.toggle_scene_check, add="+")
         review = ttk.Frame(left); review.pack(fill="x", pady=(6, 0))
-        CurveButton(review, text=self.t("select_all"), command=lambda: self.scene_tree.selection_set(self.scene_tree.get_children()), variant="ghost", width=92, height=34).pack(side="left")
-        CurveButton(review, text=self.t("approve_selected"), command=lambda: self.set_scene_status("approved"), variant="primary", width=132, height=34).pack(side="left", padx=4)
-        CurveButton(review, text=self.t("review_selected"), command=lambda: self.set_scene_status("reviewed"), variant="secondary", width=125, height=34).pack(side="left")
+        for column in range(2): review.columnconfigure(column, weight=1)
+        CurveButton(review, text=self.t("select_all"), command=self.check_all_scenes, variant="ghost", height=34).grid(row=0, column=0, sticky="ew", padx=(0, 3), pady=2)
+        CurveButton(review, text=self.t("clear_selection"), command=self.clear_scene_checks, variant="ghost", height=34).grid(row=0, column=1, sticky="ew", padx=(3, 0), pady=2)
+        CurveButton(review, text=self.t("approve_selected"), command=lambda: self.set_scene_status("approved"), variant="primary", height=36).grid(row=1, column=0, sticky="ew", padx=(0, 3), pady=2)
+        CurveButton(review, text=self.t("review_selected"), command=lambda: self.set_scene_status("reviewed"), variant="secondary", height=36).grid(row=1, column=1, sticky="ew", padx=(3, 0), pady=2)
+        CurveButton(review, text=self.t("delete_selected"), command=self.delete_scene, variant="danger", height=36).grid(row=2, column=0, sticky="ew", padx=(0, 3), pady=2)
+        CurveButton(review, text=self.t("duplicate"), command=self.duplicate_scene, variant="ghost", height=36).grid(row=2, column=1, sticky="ew", padx=(3, 0), pady=2)
+        moves = ttk.Frame(left); moves.pack(fill="x", pady=(4, 0))
+        CurveButton(moves, text=self.t("move_up"), command=lambda: self.move_scene(-1), variant="ghost", width=100, height=32).pack(side="left")
+        CurveButton(moves, text=self.t("move_down"), command=lambda: self.move_scene(1), variant="ghost", width=100, height=32).pack(side="left", padx=4)
         inspector_head = ttk.Frame(right, style="Surface.TFrame"); inspector_head.pack(fill="x", pady=(0, 8))
         ttk.Label(inspector_head, text=self.t("scene_inspector"), style="Section.TLabel").pack(side="left")
         self.status_combo = ttk.Combobox(inspector_head, values=("draft", "reviewed", "approved"), state="readonly", width=11)
         self.status_combo.pack(side="right")
+        self.status_combo.bind("<<ComboboxSelected>>", self.change_current_scene_status)
+        CurveButton(inspector_head, text=self.t("approve_scene"), command=lambda: self.change_current_scene_status(status="approved"), variant="primary", width=125, height=34).pack(side="right", padx=6)
         tabs = ttk.Notebook(right); tabs.pack(fill="both", expand=True)
         story_tab = ttk.Frame(tabs, style="Surface.TFrame"); craft_tab = ttk.Frame(tabs, style="Surface.TFrame"); generation_tab = ttk.Frame(tabs, style="Surface.TFrame")
         tabs.add(story_tab, text=self.t("story_tab")); tabs.add(craft_tab, text=self.t("craft_tab")); tabs.add(generation_tab, text=self.t("generation_tab"))
@@ -615,7 +623,7 @@ class DramaStudioApp:
         self.apply_scene()
         if index is None:
             return
-        indexes = [int(iid) for iid in self.scene_tree.selection()] if not prompts_only else [index]
+        indexes = self._scene_action_indexes() if not prompts_only else [index]
         if len(indexes) > 1:
             if not messagebox.askyesno(self.t("regenerating_scene"), self.t("regenerate_many_confirm", count=len(indexes))): return
             self.busy = True; self.progress["value"] = 0; self.cancel_event.clear(); self.cancel_btn.configure(state="normal")
@@ -719,7 +727,11 @@ class DramaStudioApp:
         self.scene_tree.tag_configure("draft", foreground=self.colors["muted"])
         self.scene_tree.tag_configure("reviewed", foreground=self.colors["warning"])
         self.scene_tree.tag_configure("approved", foreground=self.colors["success"])
-        for i, s in enumerate(self.project.scenes): self.scene_tree.insert("", "end", iid=str(i), values=(s.prompt_id, s.location, s.status.title()), tags=(s.status,))
+        valid_ids = {scene.prompt_id for scene in self.project.scenes}
+        self.checked_scene_ids.intersection_update(valid_ids)
+        for i, s in enumerate(self.project.scenes):
+            mark = "☑" if s.prompt_id in self.checked_scene_ids else "☐"
+            self.scene_tree.insert("", "end", iid=str(i), values=(mark, s.prompt_id, s.location, s.status.title()), tags=(s.status,))
         self.scene_count_var.set(self.t("scenes_count", count=len(self.project.scenes)))
         self.prompt_tree.delete(*self.prompt_tree.get_children())
         approved_prompts = 0
@@ -763,10 +775,45 @@ class DramaStudioApp:
     def select_scene(self, _event=None):
         selected = self.scene_tree.selection()
         if selected:
-            target = int(selected[0])
+            focused = self.scene_tree.focus()
+            target = int(focused if focused in selected else selected[0])
             if self.selected_scene is not None and target != self.selected_scene:
                 self.apply_scene(silent=True)
             self._show_scene(target)
+
+    def toggle_scene_check(self, event):
+        if self.scene_tree.identify_region(event.x, event.y) != "cell" or self.scene_tree.identify_column(event.x) != "#1": return
+        iid = self.scene_tree.identify_row(event.y)
+        if not iid: return "break"
+        prompt_id = self.project.scenes[int(iid)].prompt_id
+        if prompt_id in self.checked_scene_ids: self.checked_scene_ids.remove(prompt_id)
+        else: self.checked_scene_ids.add(prompt_id)
+        values = list(self.scene_tree.item(iid, "values")); values[0] = "☑" if prompt_id in self.checked_scene_ids else "☐"
+        self.scene_tree.item(iid, values=values)
+        return "break"
+
+    def check_all_scenes(self):
+        self.checked_scene_ids = {scene.prompt_id for scene in self.project.scenes}; self.refresh_all()
+
+    def clear_scene_checks(self):
+        self.checked_scene_ids.clear(); self.refresh_all()
+
+    def _scene_action_indexes(self):
+        checked = [i for i, scene in enumerate(self.project.scenes) if scene.prompt_id in self.checked_scene_ids]
+        if checked: return checked
+        selected = self.scene_tree.selection()
+        if selected: return [int(iid) for iid in selected]
+        return [self.selected_scene] if self.selected_scene is not None else []
+
+    def change_current_scene_status(self, _event=None, status=None):
+        if self.selected_scene is None: return
+        self.apply_scene(silent=True)
+        target_status = status or self.status_combo.get()
+        self.project.scenes[self.selected_scene].status = target_status
+        self.status_combo.set(target_status)
+        save_project(self.project_root, self.project); selected = self.selected_scene; self.refresh_all()
+        self.scene_tree.selection_set(str(selected)); self.scene_tree.focus(str(selected)); self._show_scene(selected)
+        self.status_var.set(self.t("scene_status_changed", status=target_status))
 
     def _show_scene(self, index: int):
         self.selected_scene = index; scene = self.project.scenes[index]
@@ -807,12 +854,12 @@ class DramaStudioApp:
         return True
 
     def set_scene_status(self, status):
-        selected = self.scene_tree.selection()
-        if not selected: return
+        indexes = self._scene_action_indexes()
+        if not indexes: return
         self.apply_scene(silent=True)
-        for iid in selected: self.project.scenes[int(iid)].status = status
-        save_project(self.project_root, self.project); self.refresh_all()
-        self.status_var.set(self.t("scenes_updated", count=len(selected)))
+        for index in indexes: self.project.scenes[index].status = status
+        save_project(self.project_root, self.project); self.checked_scene_ids.clear(); self.refresh_all()
+        self.status_var.set(self.t("scenes_updated", count=len(indexes)))
 
     def show_prompt(self, _event=None):
         selected = self.prompt_tree.selection()
@@ -891,16 +938,20 @@ class DramaStudioApp:
 
     def add_scene(self):
         n = len(self.project.scenes) + 1
-        self.project.scenes.append(Scene(f"E001_S{n:03d}", 1, n)); self.refresh_all()
+        self.project.scenes.append(Scene(f"E001_S{n:03d}", 1, n)); save_project(self.project_root, self.project); self.refresh_all()
+        index = len(self.project.scenes) - 1; self.scene_tree.selection_set(str(index)); self.scene_tree.focus(str(index)); self.scene_tree.see(str(index)); self._show_scene(index)
 
     def duplicate_scene(self):
         if self.selected_scene is None: return
         scene = copy.deepcopy(self.project.scenes[self.selected_scene]); scene.scene += 1; scene.prompt_id += "_COPY"; scene.status = "draft"
-        self.project.scenes.insert(self.selected_scene + 1, scene); self.refresh_all()
+        target = self.selected_scene + 1; self.project.scenes.insert(target, scene); save_project(self.project_root, self.project); self.refresh_all()
+        self.scene_tree.selection_set(str(target)); self.scene_tree.focus(str(target)); self.scene_tree.see(str(target)); self._show_scene(target)
 
     def delete_scene(self):
-        if self.selected_scene is None or not messagebox.askyesno(self.t("delete_scene"), self.t("delete_confirm")): return
-        self.project.scenes.pop(self.selected_scene); self.selected_scene = None; self.refresh_all(); self.save()
+        indexes = self._scene_action_indexes()
+        if not indexes or not messagebox.askyesno(self.t("delete_scene"), self.t("delete_many_confirm", count=len(indexes))): return
+        for index in sorted(indexes, reverse=True): self.project.scenes.pop(index)
+        self.checked_scene_ids.clear(); self.selected_scene = None; save_project(self.project_root, self.project); self.refresh_all()
 
     def move_scene(self, delta: int):
         if self.selected_scene is None: return
