@@ -377,10 +377,10 @@ class DramaStudioApp:
         self.project_tree.bind("<Double-1>", lambda _event: self.open_selected_project())
         actions = ttk.Frame(live_tab, style="Surface.TFrame"); actions.pack(fill="x", pady=(10, 0))
         CurveButton(actions, text=self.t("open_project"), command=self.open_selected_project, variant="primary", width=130).pack(side="left")
+        CurveButton(actions, text=self.t("move_to_trash"), command=self.trash_selected_project, variant="danger", width=125).pack(side="left", padx=4)
         CurveButton(actions, text=self.t("rename"), command=self.rename_selected_project, variant="secondary", width=105).pack(side="left", padx=4)
         CurveButton(actions, text=self.t("duplicate"), command=self.duplicate_selected_project, variant="secondary", width=105).pack(side="left", padx=4)
         CurveButton(actions, text=self.t("show_folder"), command=self.show_selected_project, variant="secondary", width=115).pack(side="left", padx=4)
-        CurveButton(actions, text=self.t("move_to_trash"), command=self.trash_selected_project, variant="danger", width=125).pack(side="left", padx=4)
         CurveButton(actions, text=self.t("refresh"), command=self.refresh_projects, variant="ghost", width=90).pack(side="right")
         self.trash_tree = ttk.Treeview(trash_tab, columns=("name", "deleted", "remaining"), show="headings", selectmode="browse")
         for column, label, width in (("name", self.t("project_name"), 300), ("deleted", self.t("deleted_on"), 180), ("remaining", self.t("days_remaining"), 160)):
