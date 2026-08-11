@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1475,6 +1476,8 @@ class DramaStudioApp:
             except Exception as exc:
                 failures.append((index, kind, str(exc)))
             self.root.after(0, self.prompt_task_var.set, self.t("prompt_regeneration_progress", done=position, total=len(jobs)))
+            if position < len(jobs) and provider.config.provider != "Demo":
+                time.sleep(1.5)
         self.root.after(0, self._prompt_done, results, failures)
 
     def _prompt_done(self, results, failures):

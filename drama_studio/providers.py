@@ -27,7 +27,7 @@ class ChatProvider:
     def __init__(self, config: ProviderConfig):
         self.config = config
 
-    def complete(self, system: str, user: str, max_tokens: int = 8192, retries: int = 2) -> str:
+    def complete(self, system: str, user: str, max_tokens: int = 8192, retries: int = 3) -> str:
         if self.config.provider == "Demo":
             raise RuntimeError("Demo responses are produced by the local demo pipeline.")
         if not self.config.api_key:
@@ -40,6 +40,7 @@ class ChatProvider:
             "response_format": {"type": "json_object"},
         }, ensure_ascii=False).encode("utf-8")
         last_error: Exception | None = None
+        retry_delays = (2, 5, 10)
         for attempt in range(retries + 1):
             request = urllib.request.Request(self.config.endpoint, data=payload, headers={
                 "Authorization": f"Bearer {self.config.api_key}",
@@ -50,8 +51,12 @@ class ChatProvider:
                     data = json.loads(response.read().decode("utf-8"))
                 choice = data["choices"][0]
                 content = choice["message"].get("content")
-                if not content:
-                    raise RuntimeError("The provider returned an empty response.")
+                if not content or not str(content).strip():
+                    last_error = RuntimeError("The provider returned an empty response after automatic retries.")
+                    if attempt >= retries:
+                        raise last_error
+                    time.sleep(retry_delays[min(attempt, len(retry_delays) - 1)])
+                    continue
                 if choice.get("finish_reason") == "length":
                     raise RuntimeError("The provider response was truncated because this request produced too much output.")
                 return content
@@ -66,7 +71,7 @@ class ChatProvider:
                     raise last_error from exc
             except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
                 raise RuntimeError("The provider returned an unexpected response format.") from exc
-            time.sleep(1.5 * (2 ** attempt))
+            time.sleep(retry_delays[min(attempt, len(retry_delays) - 1)])
         raise last_error or RuntimeError("API request failed.")
 
     def test(self) -> str:

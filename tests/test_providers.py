@@ -1,6 +1,17 @@
 import unittest
+import json
+from unittest.mock import patch
 
-from drama_studio.providers import DEFAULTS, parse_json_response
+from drama_studio.providers import DEFAULTS, ChatProvider, ProviderConfig, parse_json_response
+
+
+class FakeResponse:
+    def __init__(self, content):
+        self.payload = json.dumps({"choices": [{"message": {"content": content}, "finish_reason": "stop"}]}).encode()
+
+    def __enter__(self): return self
+    def __exit__(self, *_args): return False
+    def read(self): return self.payload
 
 
 class ProviderTests(unittest.TestCase):
@@ -18,6 +29,13 @@ class ProviderTests(unittest.TestCase):
     def test_reject_missing_object(self):
         with self.assertRaises(ValueError):
             parse_json_response("not json")
+
+    def test_empty_response_retries_with_backoff_then_succeeds(self):
+        provider = ChatProvider(ProviderConfig("DeepSeek", "https://example.invalid", "model", "key"))
+        responses = [FakeResponse(""), FakeResponse(None), FakeResponse("  "), FakeResponse('{"ok":true}')]
+        with patch("drama_studio.providers.urllib.request.urlopen", side_effect=responses), patch("drama_studio.providers.time.sleep") as sleep:
+            self.assertEqual(provider.complete("system", "user"), '{"ok":true}')
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [2, 5, 10])
 
 
 if __name__ == "__main__":
