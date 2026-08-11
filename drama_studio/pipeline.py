@@ -232,19 +232,31 @@ def regenerate_field(project: ProjectData, scene_index: int, field: str, provide
     return value.strip()
 
 
-def regenerate_prompt_kind(project: ProjectData, scene_index: int, kind: str, provider: ChatProvider, rule_text: str = "", feedback: str = "") -> tuple[str, str]:
+def regenerate_prompt_kind(project: ProjectData, scene_index: int, kind: str, provider: ChatProvider, rule_text: str = "", feedback: str = "", operation: str = "regenerate") -> tuple[str, str]:
     if kind not in ("photo", "video"): raise ValueError("Prompt kind must be photo or video.")
+    if operation not in ("generate", "regenerate"): raise ValueError("Prompt operation must be generate or regenerate.")
     scene = project.scenes[scene_index]
     if provider.config.provider == "Demo":
         return ((_demo_photo_prompt(scene, project), _demo_photo_negative(scene, project)) if kind == "photo" else (_demo_video_prompt(scene, project), _demo_video_negative(scene, project)))
     positive_field, negative_field = f"{kind}_prompt", f"{kind}_negative_prompt"
-    prompt = f"""只生成当前一个scene的{kind}正向和可选负向提示词。不要复述scene、角色档案、规则或解释。只输出一个紧凑JSON对象：{{"positive_prompt":"","negative_prompt":"","negative_prompt_required":true}}。
+    existing_positive = getattr(scene, positive_field)
+    existing_negative = getattr(scene, negative_field)
+    operation_instruction = (
+        "这是首次生成：当前没有旧提示词。请直接根据分镜和角色档案从零创作，不要假设或提及旧版本。"
+        if operation == "generate" else
+        f"这是重新生成：请以旧提示词为修订素材，保留正确的连续性信息并重写不足之处。旧正向提示词：{existing_positive or '空'}；旧负向提示词：{existing_negative or '空'}。"
+    )
+    scene_payload = scene.to_dict()
+    if operation == "generate":
+        scene_payload[positive_field] = ""
+        scene_payload[negative_field] = ""
+    prompt = f"""只生成当前一个scene的{kind}正向和可选负向提示词。{operation_instruction}不要复述scene、角色档案、规则或解释。只输出一个紧凑JSON对象：{{"positive_prompt":"","negative_prompt":"","negative_prompt_required":true}}。
 正向提示词必须准确写入角色档案中相关人物的身份锚点、固定特征和本镜服装情绪，不得只写角色ID或姓名。负向提示词仅在能减少身份漂移、错误服装道具、额外人物、肢体画质问题、隐藏切镜或环境突变时填写；不需要时返回空字符串和false。
 当前有效规则：{rule_text or '使用系统默认规则'}
 用户反馈：{feedback or '无'}
 项目摘要：{json.dumps(project.project_summary, ensure_ascii=False)}
 角色档案：{json.dumps(scene_character_context(project, scene), ensure_ascii=False)}
-scene：{json.dumps(scene.to_dict(), ensure_ascii=False)}"""
+scene：{json.dumps(scene_payload, ensure_ascii=False)}"""
     try:
         response = provider.complete(SYSTEM, prompt, 1200)
     except RuntimeError as exc:

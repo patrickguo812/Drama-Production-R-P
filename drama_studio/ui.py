@@ -155,6 +155,7 @@ class DramaStudioApp:
         self.novel: ExtractedNovel | None = None
         self.project = ProjectData()
         self.selected_scene: int | None = None
+        self.checked_project_roots: set[str] = set()
         self.checked_scene_ids: set[str] = set()
         self.checked_prompt_ids: set[str] = set()
         self.global_rules = load_global_rules()
@@ -379,19 +380,23 @@ class DramaStudioApp:
         live_tab = ttk.Frame(self.project_tabs, style="Surface.TFrame")
         trash_tab = ttk.Frame(self.project_tabs, style="Surface.TFrame")
         self.project_tabs.add(live_tab, text=self.t("active_projects")); self.project_tabs.add(trash_tab, text=self.t("trash"))
-        actions = ttk.Frame(live_tab, style="Surface.TFrame"); actions.pack(fill="x", pady=(8, 6))
+        selection_actions = ttk.Frame(live_tab, style="Surface.TFrame"); selection_actions.pack(fill="x", pady=(8, 2))
+        CurveButton(selection_actions, text=self.t("select_all"), command=self.select_all_projects, variant="ghost", width=90).pack(side="left")
+        CurveButton(selection_actions, text=self.t("clear_selection"), command=self.clear_project_selection, variant="ghost", width=105).pack(side="left", padx=4)
+        CurveButton(selection_actions, text=self.t("move_to_trash"), command=self.trash_selected_project, variant="danger", width=125).pack(side="left", padx=4)
+        actions = ttk.Frame(live_tab, style="Surface.TFrame"); actions.pack(fill="x", pady=(2, 6))
         CurveButton(actions, text=self.t("open_project"), command=self.open_selected_project, variant="primary", width=130).pack(side="left")
-        CurveButton(actions, text=self.t("move_to_trash"), command=self.trash_selected_project, variant="danger", width=125).pack(side="left", padx=4)
         CurveButton(actions, text=self.t("rename"), command=self.rename_selected_project, variant="secondary", width=105).pack(side="left", padx=4)
         CurveButton(actions, text=self.t("duplicate"), command=self.duplicate_selected_project, variant="secondary", width=105).pack(side="left", padx=4)
         CurveButton(actions, text=self.t("show_folder"), command=self.show_selected_project, variant="secondary", width=115).pack(side="left", padx=4)
         CurveButton(actions, text=self.t("refresh"), command=self.refresh_projects, variant="ghost", width=90).pack(side="right")
-        self.project_tree = ttk.Treeview(live_tab, columns=("name", "scenes", "prompt_generated", "prompt_progress"), show="headings", selectmode="browse")
-        for column, label, width in (("name", self.t("project_name"), 260), ("scenes", self.t("scenes"), 90),
+        self.project_tree = ttk.Treeview(live_tab, columns=("check", "name", "scenes", "prompt_generated", "prompt_progress"), show="headings", selectmode="browse")
+        for column, label, width in (("check", self.t("select"), 55), ("name", self.t("project_name"), 220), ("scenes", self.t("scenes"), 75),
                                      ("prompt_generated", self.t("prompts_generated"), 150), ("prompt_progress", self.t("prompt_approval"), 180)):
             self.project_tree.heading(column, text=label); self.project_tree.column(column, width=width, anchor="w")
         self.project_tree.pack(fill="both", expand=True)
         self.project_tree.bind("<Double-1>", lambda _event: self.open_selected_project())
+        self.project_tree.bind("<Button-1>", self.toggle_project_check, add="+")
         trash_actions = ttk.Frame(trash_tab, style="Surface.TFrame"); trash_actions.pack(fill="x", pady=(8, 6))
         CurveButton(trash_actions, text=self.t("restore"), command=self.restore_selected_project, variant="primary", width=120).pack(side="left")
         CurveButton(trash_actions, text=self.t("delete_permanently"), command=self.delete_selected_forever, variant="danger", width=170).pack(side="left", padx=6)
@@ -418,12 +423,16 @@ class DramaStudioApp:
             try: purge_expired_trash(self.project_library)
             except OSError: pass
         query = self.project_search_var.get().strip().casefold()
-        for root, project in scan_projects(self.project_library):
+        projects = scan_projects(self.project_library)
+        valid_roots = {str(root) for root, _project in projects}
+        self.checked_project_roots.intersection_update(valid_roots)
+        for root, project in projects:
             if query and query not in (project.project_name or root.name).casefold(): continue
             scenes = len(project.scenes); prompts = scenes * 2
             generated = sum(bool(s.photo_prompt.strip()) for s in project.scenes) + sum(bool(s.video_prompt.strip()) for s in project.scenes)
             approved_prompts = sum(s.photo_status == "approved" for s in project.scenes) + sum(s.video_status == "approved" for s in project.scenes)
-            self.project_tree.insert("", "end", iid=str(root), values=(project.project_name or root.name, scenes, f"{generated}/{prompts}", f"{approved_prompts}/{prompts}"))
+            mark = "☑" if str(root) in self.checked_project_roots else "☐"
+            self.project_tree.insert("", "end", iid=str(root), values=(mark, project.project_name or root.name, scenes, f"{generated}/{prompts}", f"{approved_prompts}/{prompts}"))
         now = datetime.now(timezone.utc)
         for root, metadata, project in scan_trash(self.project_library):
             name = project.project_name or metadata.get("project_name") or root.name
@@ -436,6 +445,28 @@ class DramaStudioApp:
     def _selected_project_root(self):
         selected = self.project_tree.selection()
         return Path(selected[0]) if selected else None
+
+    def toggle_project_check(self, event):
+        if self.project_tree.identify_region(event.x, event.y) != "cell" or self.project_tree.identify_column(event.x) != "#1": return
+        iid = self.project_tree.identify_row(event.y)
+        if not iid: return "break"
+        if iid in self.checked_project_roots: self.checked_project_roots.remove(iid)
+        else: self.checked_project_roots.add(iid)
+        values = list(self.project_tree.item(iid, "values")); values[0] = "☑" if iid in self.checked_project_roots else "☐"
+        self.project_tree.item(iid, values=values)
+        return "break"
+
+    def select_all_projects(self):
+        self.checked_project_roots = set(self.project_tree.get_children()); self.refresh_projects(purge=False)
+
+    def clear_project_selection(self):
+        self.checked_project_roots.clear(); self.refresh_projects(purge=False)
+
+    def _project_action_roots(self):
+        checked = [Path(iid) for iid in self.project_tree.get_children() if iid in self.checked_project_roots]
+        if checked: return checked
+        selected = self.project_tree.selection()
+        return [Path(selected[0])] if selected else []
 
     def rename_selected_project(self):
         root = self._selected_project_root()
@@ -468,15 +499,19 @@ class DramaStudioApp:
         except OSError as exc: messagebox.showerror(self.t("show_folder_failed"), str(exc))
 
     def trash_selected_project(self):
-        root = self._selected_project_root()
-        if not root: return
-        if not messagebox.askyesno(self.t("move_to_trash"), self.t("trash_confirm", name=root.name)): return
-        try: move_project_to_trash(self.project_library, root)
-        except Exception as exc: messagebox.showerror(self.t("trash_failed"), str(exc)); return
-        if self.project_root and self.project_root.resolve() == root.resolve():
+        roots = self._project_action_roots()
+        if not roots: return
+        if not messagebox.askyesno(self.t("move_to_trash"), self.t("trash_many_confirm", count=len(roots))): return
+        failures = []
+        for root in roots:
+            try: move_project_to_trash(self.project_library, root)
+            except Exception as exc: failures.append(f"{root.name}: {exc}")
+        if self.project_root and any(self.project_root.resolve() == root.resolve() for root in roots):
             self.project_root = None; self.novel = None; self.project = ProjectData(); self.selected_scene = None; self.checked_scene_ids.clear()
             self.folder_var.set(self.t("no_project_open")); self.novel_var.set(self.t("no_novel")); self.refresh_all()
+        self.checked_project_roots.clear()
         self.refresh_projects(); self.status_var.set(self.t("project_trashed"))
+        if failures: messagebox.showwarning(self.t("trash_failed"), "\n".join(failures))
 
     def restore_selected_project(self):
         selected = self.trash_tree.selection()
@@ -679,7 +714,9 @@ class DramaStudioApp:
         self.prompt_action_var = tk.StringVar(value=self.t("choose_status_action"))
         ttk.Combobox(prompt_bulk, textvariable=self.prompt_action_var, values=(self.t("approve_selected"), self.t("review_selected"), self.t("delete_selected")), state="readonly").grid(row=0, column=2, columnspan=2, sticky="ew", padx=2)
         CurveButton(prompt_bulk, text=self.t("apply_action"), command=self.apply_prompt_bulk_action, variant="secondary", height=34).grid(row=0, column=4, sticky="ew", padx=2)
-        CurveButton(prompt_bulk, text=self.t("regenerate_selected_prompts"), command=self.start_prompt_generation, variant="primary", height=34).grid(row=0, column=5, columnspan=2, sticky="ew", padx=2)
+        self.prompt_generation_action_var = tk.StringVar(value=self.t("generate_missing_prompts"))
+        ttk.Combobox(prompt_bulk, textvariable=self.prompt_generation_action_var, values=(self.t("generate_missing_prompts"), self.t("regenerate_existing_prompts")), state="readonly").grid(row=0, column=5, sticky="ew", padx=2)
+        CurveButton(prompt_bulk, text=self.t("apply_generation"), command=self.start_prompt_generation, variant="primary", height=34).grid(row=0, column=6, sticky="ew", padx=2)
         pane = ttk.Panedwindow(self.prompts_tab, orient="horizontal"); pane.pack(fill="both", expand=True)
         left_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20); right_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20)
         pane.add(left_panel, weight=3); pane.add(right_panel, weight=4)
@@ -1404,15 +1441,22 @@ class DramaStudioApp:
         selected = self._prompt_action_iids()
         if not selected:
             messagebox.showinfo(self.t("nothing_selected"), self.t("select_prompt_action_body")); return
-        jobs = [(int(iid.split(":", 1)[0]), iid.split(":", 1)[1]) for iid in selected]
+        operation = "generate" if self.prompt_generation_action_var.get() == self.t("generate_missing_prompts") else "regenerate"
+        requested = [(int(iid.split(":", 1)[0]), iid.split(":", 1)[1]) for iid in selected]
+        jobs = []
+        for index, kind in requested:
+            value = getattr(self.project.scenes[index], f"{kind}_prompt").strip()
+            if (operation == "generate" and not value) or (operation == "regenerate" and value): jobs.append((index, kind))
         if not jobs:
-            messagebox.showinfo(self.t("nothing_to_generate"), self.t("select_approved_scenes")); return
+            messagebox.showinfo(self.t("nothing_to_generate"), self.t("no_compatible_prompts")); return
+        skipped = len(requested) - len(jobs)
+        if skipped: messagebox.showinfo(self.t("prompts_skipped"), self.t("prompts_skipped_body", count=skipped))
         if self.config.provider != "Demo" and not self.config.api_key:
             messagebox.showinfo(self.t("api_required"), self.t("api_required_body")); return
         self.busy = True; self.cancel_event.clear(); self.progress["value"] = 0; self.cancel_btn.configure(state="normal"); self.status_var.set(self.t("generating_prompts"))
-        threading.Thread(target=self._prompt_worker, args=(jobs,), daemon=True).start()
+        threading.Thread(target=self._prompt_worker, args=(jobs, operation), daemon=True).start()
 
-    def _prompt_worker(self, jobs):
+    def _prompt_worker(self, jobs, operation):
         results = []
         failures = []
         provider = ChatProvider(self.config)
@@ -1420,10 +1464,10 @@ class DramaStudioApp:
             try:
                 if self.cancel_event.is_set(): raise InterruptedError("Prompt generation cancelled.")
                 field = "photo_prompt" if kind == "photo" else "video_prompt"
-                value, negative = regenerate_prompt_kind(self.project, index, kind, provider, self._active_rule_text())
+                value, negative = regenerate_prompt_kind(self.project, index, kind, provider, self._active_rule_text(), operation=operation)
                 probe = Scene.from_dict(self.project.scenes[index].to_dict()); setattr(probe, field, value)
                 issues = inspect_prompt(probe, kind, self.project)
-                if issues: value, negative = regenerate_prompt_kind(self.project, index, kind, provider, self._active_rule_text(), "；".join(issue.message for issue in issues))
+                if issues: value, negative = regenerate_prompt_kind(self.project, index, kind, provider, self._active_rule_text(), "；".join(issue.message for issue in issues), operation=operation)
                 results.append((index, kind, value, negative))
             except InterruptedError as exc:
                 failures.append((index, kind, str(exc)))
