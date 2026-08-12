@@ -124,6 +124,7 @@ TEXT = {
         "replacement_prompt_progress": "Generating replacement prompts {done}/{total}", "replacement_prompts_incomplete": "Scenes saved; some replacement prompts still need regeneration",
         "feedback_prompt_progress": "Applying feedback to prompts {done}/{total}", "feedback_correction_complete": "Feedback correction complete · review the draft prompts",
         "scene_regeneration_progress": "Regenerating scenes {done}/{total}", "prompt_regeneration_progress": "Regenerating prompts {done}/{total}",
+        "scenes_and_prompts_updated": "Updated {count} scene(s) and their photo/video prompts",
         "quality": "Quality", "quality_pass": "Passed", "quality_warning": "Warning", "quality_needs_attention": "Needs attention", "quality_unchecked": "Not inspected",
     },
     "zh": {
@@ -248,6 +249,7 @@ TEXT = {
         "replacement_prompt_progress": "正在生成替代提示词 {done}/{total}", "replacement_prompts_incomplete": "分镜已保存，部分替代提示词仍需重新生成",
         "feedback_prompt_progress": "正在应用反馈到提示词 {done}/{total}", "feedback_correction_complete": "反馈修改已完成，请审核草稿提示词",
         "scene_regeneration_progress": "正在重写分镜 {done}/{total}", "prompt_regeneration_progress": "正在重写提示词 {done}/{total}",
+        "scenes_and_prompts_updated": "已更新 {count} 个分镜及其图片／视频提示词",
         "quality": "质量", "quality_pass": "已通过", "quality_warning": "有警告", "quality_needs_attention": "需要处理", "quality_unchecked": "未检查",
     },
 }

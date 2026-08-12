@@ -1168,22 +1168,32 @@ class DramaStudioApp:
         threading.Thread(target=self._regenerate_worker, args=(index, prompts_only), daemon=True).start()
 
     def _regenerate_many_worker(self, indexes):
-        results = {}
-        try:
-            provider = ChatProvider(self.config)
-            for position, index in enumerate(indexes, 1):
+        results = {}; failures = []
+        provider = ChatProvider(self.config)
+        for position, index in enumerate(indexes, 1):
+            try:
                 if self.cancel_event.is_set(): raise InterruptedError("Scene regeneration cancelled.")
-                scene = regenerate_scene(self.project, index, provider, False, self._active_rule_text()); invalidate_scene_prompts(scene); results[index] = scene
+                scene = regenerate_scene(self.project, index, provider, False, self._active_rule_text())
+                working = copy.deepcopy(self.project); working.scenes[index] = scene
+                generated = regenerate_scene(working, index, provider, True, self._active_rule_text())
+                scene.photo_prompt, scene.video_prompt = generated.photo_prompt, generated.video_prompt
+                scene.photo_negative_prompt, scene.video_negative_prompt = generated.photo_negative_prompt, generated.video_negative_prompt
+                scene.photo_status = scene.video_status = "draft"
+                results[index] = scene
                 self.root.after(0, self.scene_task_var.set, self.t("scene_regeneration_progress", done=position, total=len(indexes)))
-            self.root.after(0, self._regenerate_many_done, results, None)
-        except Exception as exc: self.root.after(0, self._regenerate_many_done, results, exc)
+            except InterruptedError as exc:
+                failures.append(str(exc)); break
+            except Exception as exc:
+                failures.append(f"{self.project.scenes[index].prompt_id}: {exc}")
+        self.root.after(0, self._regenerate_many_done, results, failures)
 
-    def _regenerate_many_done(self, results, error):
+    def _regenerate_many_done(self, results, failures):
         self.busy = False; self.cancel_btn.configure(state="disabled")
         for index, scene in results.items(): self.project.scenes[index] = scene
         if results: save_project(self.project_root, self.project); self.refresh_all()
-        if error: messagebox.showerror(self.t("regeneration_failed"), str(error)); return
-        self.progress["value"] = 100; self.status_var.set(self.t("scenes_updated", count=len(results)))
+        if failures:
+            messagebox.showwarning(self.t("replacement_prompts_incomplete"), "\n".join(failures[:5]))
+        self.progress["value"] = 100; self.status_var.set(self.t("scenes_and_prompts_updated", count=len(results)))
 
     def _regenerate_worker(self, index: int, prompts_only: bool):
         try:
@@ -1204,7 +1214,11 @@ class DramaStudioApp:
             scene.photo_status = scene.video_status = "draft"
         else: invalidate_scene_prompts(scene)
         self.project.scenes[index] = scene; self.save(); self.refresh_all(); self.scene_tree.selection_set(str(index)); self._show_scene(index)
-        self.status_var.set(self.t("regenerated_saved", name=scene.prompt_id))
+        if not prompts_only:
+            self.busy = True; self.cancel_event.clear(); self.scene_task_var.set(self.t("generating_replacement_prompts"))
+            threading.Thread(target=self._replacement_prompt_worker, args=(index, 1), daemon=True).start()
+        else:
+            self.status_var.set(self.t("regenerated_saved", name=scene.prompt_id))
 
     def _review_replacement(self, original, replacement, title):
         win = tk.Toplevel(self.root); win.title(title); win.geometry("980x620"); win.transient(self.root); win.grab_set()
