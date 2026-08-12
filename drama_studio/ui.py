@@ -651,8 +651,8 @@ class DramaStudioApp:
         right_panel = BezierPanel(pane, fill=self.colors["surface"], radius=20)
         left, right = left_panel.content, right_panel.content
         pane.add(left_panel, weight=3); pane.add(right_panel, weight=5)
-        self.scene_tree = ttk.Treeview(left, columns=("check", "id", "quality", "loc"), show="headings", selectmode="extended")
-        for column, label, width in (("check", self.t("select"), 52), ("id", self.t("scene"), 100), ("quality", self.t("quality"), 105), ("loc", self.t("location"), 190)):
+        self.scene_tree = ttk.Treeview(left, columns=("check", "id", "loc"), show="headings", selectmode="extended")
+        for column, label, width in (("check", self.t("select"), 52), ("id", self.t("scene"), 110), ("loc", self.t("location"), 250)):
             self.scene_tree.heading(column, text=label); self.scene_tree.column(column, width=width, anchor="w")
         self.scene_tree.pack(fill="both", expand=True)
         self.scene_tree.bind("<<TreeviewSelect>>", self.select_scene)
@@ -664,8 +664,6 @@ class DramaStudioApp:
         CurveButton(moves, text=self.t("move_down"), command=lambda: self.move_scene(1), variant="ghost", height=32).grid(row=0, column=2, sticky="ew", padx=2)
         inspector_head = ttk.Frame(right, style="Surface.TFrame"); inspector_head.pack(fill="x", pady=(0, 8))
         ttk.Label(inspector_head, text=self.t("scene_inspector"), style="Section.TLabel").pack(side="left")
-        self.scene_quality_var = tk.StringVar(value="")
-        ttk.Label(inspector_head, textvariable=self.scene_quality_var, style="Sub.TLabel").pack(side="left", padx=10)
         CurveButton(inspector_head, text=self.t("submit_feedback"), command=lambda: self.start_feedback("scene"), variant="secondary", width=140, height=34).pack(side="right")
         tabs = ttk.Notebook(right); tabs.pack(fill="both", expand=True)
         story_tab = ttk.Frame(tabs, style="Surface.TFrame"); craft_tab = ttk.Frame(tabs, style="Surface.TFrame"); generation_tab = ttk.Frame(tabs, style="Surface.TFrame")
@@ -1250,8 +1248,7 @@ class DramaStudioApp:
         self.checked_scene_ids.intersection_update(valid_ids)
         for i, s in enumerate(self.project.scenes):
             mark = "☑" if s.prompt_id in self.checked_scene_ids else "☐"
-            quality = self.t("quality_" + s.quality_status) if s.quality_status in ("pass", "warning", "needs_attention", "unchecked") else s.quality_status
-            self.scene_tree.insert("", "end", iid=str(i), values=(mark, s.prompt_id, quality, s.location))
+            self.scene_tree.insert("", "end", iid=str(i), values=(mark, s.prompt_id, s.location))
         self.scene_count_var.set(self.t("scenes_count", count=len(self.project.scenes)))
         self.prompt_tree.delete(*self.prompt_tree.get_children())
         valid_prompt_ids = {f"{scene.prompt_id}:{kind}" for scene in self.project.scenes for kind in ("photo", "video")}
@@ -1333,8 +1330,6 @@ class DramaStudioApp:
 
     def _show_scene(self, index: int):
         self.selected_scene = index; scene = self.project.scenes[index]
-        notes = "; ".join(scene.quality_notes)
-        self.scene_quality_var.set(f"{self.t('quality')}: {self.t('quality_' + scene.quality_status) if scene.quality_status in ('pass','warning','needs_attention','unchecked') else scene.quality_status}" + (f" · {notes}" if notes else ""))
         data = scene.to_dict(); data["characters"] = ", ".join(scene.characters)
         data["subtitles"] = "\n".join(f"{item.start_seconds:g}-{item.end_seconds:g} | {item.speaker} | {item.text}" for item in scene.subtitles)
         for key, widget in self.fields.items(): self._set_widget(widget, str(data.get(key, "")))
