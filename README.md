@@ -12,6 +12,10 @@ python3 app.py
 
 No API key is required for **Demo mode**. For real processing, choose DeepSeek, Qwen, or OpenAI in Settings, enter the provider-specific API key, and test the connection. Keys are stored in macOS Keychain or Windows Credential Manager and are never written to project files.
 
+## Download the current Mac app
+
+The latest Apple-silicon build is included at [`release/Drama-Studio-Text-Production-macOS-arm64.zip`](release/Drama-Studio-Text-Production-macOS-arm64.zip). Unzip it, then open **Drama Studio - Text Production.app**. This local build is unsigned, so macOS may require Control-click → Open on first launch.
+
 ## Project output
 
 ```text
