@@ -1,0 +1,75 @@
+# User guide
+
+## First run
+
+1. Launch **Drama Studio - Text Production**.
+2. Open **API Settings**.
+3. Select **Demo** to explore safely, or select **DeepSeek**, **Qwen**, or **OpenAI** and enter that provider's API key.
+4. For a real provider, choose **Test Connection**, then **Save**.
+5. Open **Project Manager**, choose one Drama Projects parent folder, and create a named project.
+6. The app automatically creates `Source`, `Project Plan`, and `Project Genre` inside that project.
+7. Import one `.docx` novel and inspect the extracted preview. A safe copy is placed in `Source`.
+8. Choose **Create scene plan**.
+
+Long novels are read in sections. The provider creates the complete scene plan and then automatically creates both prompts for every scene. The sidebar shows separate Scenes and Prompts progress throughout the run.
+
+## Project management
+
+Project Manager keeps every project inside the selected Drama Projects parent folder. Use Search to find projects, or select one to open, rename, duplicate, reveal in Finder/Explorer, or move it to Trash. Renaming changes both the real folder name and the saved project name; duplicating copies the source, scenes, characters, prompts, and generated assets.
+
+Deleted projects move to the hidden `.DramaStudio Trash` folder inside that same parent folder. The Trash tab shows the deletion time and days remaining. A project can be restored for 10 days; if its old name is already used, the app asks for a different one. Expired items are removed when the app starts or Project Manager refreshes. **Delete permanently** shows the exact folder and asks for confirmation. Automatic cleanup ignores unmarked folders and only removes valid projects previously trashed by Drama Studio.
+
+## Review
+
+The **Story & cast** section provides plain-language fields for the combined theme/style summary and recurring-character profiles. Projects autosave to `project.drama`, and reopening a project restores its scenes and characters.
+
+Character profile documents are created automatically from the novel. Every archived character is saved separately in `Project Plan/Character Profiles/CHARACTER_ID.json`. Each profile contains two standard reference prompts in order: front face, then three-quarter face. Main, recurring, or visually important characters additionally receive a full-body/default-costume reference prompt. These describe separate future images, not multiple views forced into one image.
+
+The **Scene Board** lists generatable clips without an approval stage. Select a scene to edit its plot, location, character IDs, costume/state, action, subtitle timing, duration, camera, and continuity. Enter each subtitle on its own line as `start-end | speaker | text`. Scenes can be added, duplicated, deleted, reordered, or regenerated.
+
+The separate **Prompt Board** is the only approval stage and edits or approves photo and video prompts independently. Photo prompts target dense, precise Chinese of approximately 100 characters. A slight overrun is allowed and never blocks saving.
+
+Each Prompt Board row has its own checkbox. Check any combination of photo and video rows, then approve, mark reviewed, delete, regenerate, or submit feedback for only those prompts. Clicking the rest of a row opens the editor without changing the batch checkbox.
+
+The Prompt Inspector shows a positive prompt and an optional negative prompt. Before generation, the app resolves scene character IDs against the profile archive and supplies visible identity anchors, fixed features, relevant reference prompts, default costume, and the current scene state to the API. The checker repairs prompts that omit important identity anchors or make a negative prompt contradict a required feature.
+
+**Regenerate selected scenes** shows the current and proposed versions before replacing one scene, and supports confirmed batches. Changing any scene clears its old photo/video prompts. Regenerate those missing rows from Prompt Board, where they return to draft for manual approval.
+
+## Quality Rulebook and feedback
+
+Open **Rulebook** below Settings in the top-right header. Built-in rules cover continuous camera feasibility, hidden cuts, visual beats, duration, dialogue, continuity, still-image prompts, video prompts, and preferred wording. Rules can be enabled, disabled, searched, reviewed, and modified. User rules can apply to every project or only the open project.
+
+Use **Create new rule** to describe a proactive production preference. Use **Submit feedback** on Scene Board or Prompt Board to report a problem in selected content. The configured agent first converts your description into a formal rule proposal. Review its interpretation, applicability, and exception, then choose:
+
+- **Submit to Rulebook** to save the rule and apply the correction.
+- **Modify** to send revision instructions back to the agent and review another draft.
+- **Use once only** to correct selected content without permanently learning a rule.
+- **Cancel** to make no change.
+
+For scene feedback, select exactly one scene. If the correction requires multiple camera setups, the API returns replacement scenes. The app shows them before replacement, renumbers later scene and prompt IDs, checks the replacements, clears obsolete prompts, and generates new draft photo/video prompts.
+
+The initial generation request receives a compact compilation of active built-in, global, project, and wording rules. Returned scenes are inspected before prompt generation. The preferred duration is 3–6 seconds; 7–8 seconds is acceptable; scenes above 8 through 10 seconds require strict justification; scenes above 10 seconds must be split. Transition words such as 随后、接着、然后 are warnings rather than automatic split commands—the deciding test is whether one real camera can capture the entire scene continuously.
+
+Feedback, inspection, repair, and rule-modification progress appears temporarily inside the active board or Rulebook page. The sidebar remains reserved for the main novel-to-scenes and prompt-production progress.
+
+## Prompt extraction contract
+
+A later image agent opens `Photos Prompts.json`, finds one approved record by `prompt_id`, then reads its `positive_prompt`, optional `negative_prompt`, `character_ids`, and `character_profile_files`. A later video agent does the same with `Videos Prompts.json`. IDs are stable links among scenes, individual character profiles, prompts, future reference images, photos, and videos.
+
+## Credentials and privacy
+
+- macOS keys are stored in Keychain under service `DramaStudio`.
+- Windows keys are stored as generic credentials in Windows Credential Manager.
+- `DEEPSEEK_API_KEY` or `QWEN_API_KEY` can supply a session key for development.
+- `OPENAI_API_KEY` can supply the OpenAI session key for development.
+- Keys are not written to project JSON or prompt files.
+- The app does not store raw provider responses, processing history, or hidden reasoning.
+- Novel text is sent to the selected provider only when real processing is started.
+
+## Recovery
+
+Every save uses atomic file replacement and maintains one recovery copy. Open a project through Project Manager to reload `project.drama`. `Photos Prompts.json` and `Videos Prompts.json` are rebuilt from approved prompt records only, so obsolete or draft prompts cannot be sent accidentally. Opening an older project automatically creates individual character JSON files and replaces the legacy generated TXT exports; internal recovery data remains intact.
+
+## Current boundary
+
+This version prepares character descriptions, character-reference prompts, photo prompts, and video prompts. It does not train LoRAs or call an image/video generation API. `Character References`, `Photos`, and `Videos` are prepared for that later stage.
